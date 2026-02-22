@@ -1,5 +1,6 @@
 package pos.finestar.barion.api
 
+import com.google.gson.JsonObject
 import pos.finestar.barion.api.model.ActiveLayoutDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
@@ -8,6 +9,7 @@ import pos.finestar.barion.api.model.TableStatusDto
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface PosApi {
@@ -28,4 +30,9 @@ interface PosApi {
     suspend fun getOpenCheckByTable(
         @Query("table_id") tableId: Long
     ): CheckDto
+
+    @GET("/api/pos/checks/{checkId}/items/")
+    suspend fun getCheckItems(
+        @Path("checkId") checkId: Long
+    ): JsonObject
 }

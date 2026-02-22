@@ -21,10 +21,15 @@ class CheckViewModel @Inject constructor(
 ) : ViewModel() {
 
     data class UiState(
+        val isLoading: Boolean = true,
         val checkId: Long = 0L,
         val tableName: String = "",
         val status: String = "OPEN",
         val items: List<CheckItem> = emptyList(),
+        val subtotal: Double = 0.0,
+        val tax: Double = 0.0,
+        val total: Double = 0.0,
+        val error: String? = null,
         val message: String? = null
     )
 
@@ -53,32 +58,47 @@ class CheckViewModel @Inject constructor(
 
     private fun loadCheck() {
         viewModelScope.launch {
-            val check = getCheckByIdUseCase(checkId)
-            if (check != null) {
-                val displayItems = if (check.items.isEmpty()) {
-                    listOf(
-                        CheckItem("Dummy stavka", 1, 5.0),
-                        CheckItem("Dummy stavka 2", 2, 3.0)
-                    )
-                } else {
-                    check.items
+            _uiState.update { it.copy(isLoading = true, error = null) }
+
+            runCatching { getCheckByIdUseCase(checkId) }
+                .onSuccess { check ->
+                    if (check != null) {
+                        val displayItems = if (check.items.isEmpty()) {
+                            listOf(
+                                CheckItem("Dummy stavka", 1, 5.0),
+                                CheckItem("Dummy stavka 2", 2, 3.0)
+                            )
+                        } else {
+                            check.items
+                        }
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                status = check.status.name,
+                                items = displayItems,
+                                subtotal = check.subtotal,
+                                tax = check.tax,
+                                total = check.total,
+                                error = null
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                error = "Check nije pronađen."
+                            )
+                        }
+                    }
                 }
-                _uiState.update {
-                    it.copy(
-                        status = check.status.name,
-                        items = displayItems
-                    )
-                }
-            } else {
-                _uiState.update {
-                    it.copy(
-                        items = listOf(
-                            CheckItem("Dummy stavka", 1, 5.0),
-                            CheckItem("Dummy stavka 2", 2, 3.0)
+                .onFailure { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = throwable.message ?: "Greška pri učitavanju checka."
                         )
-                    )
+                    }
                 }
-            }
         }
     }
 }

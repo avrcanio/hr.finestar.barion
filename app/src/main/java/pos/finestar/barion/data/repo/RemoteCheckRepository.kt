@@ -28,7 +28,13 @@ class RemoteCheckRepository @Inject constructor(
         return check
     }
 
-    override suspend fun getCheck(checkId: Long): CheckSession? = checkCache[checkId]
+    override suspend fun getCheck(checkId: Long): CheckSession? {
+        return runCatching {
+            val payload = api.getCheckItems(checkId)
+            CheckItemsMapper.toCheckSession(payload)
+        }.onSuccess { cache(it) }
+            .getOrElse { checkCache[checkId] }
+    }
 
     private fun cache(check: CheckSession) {
         checkCache[check.checkId] = check
