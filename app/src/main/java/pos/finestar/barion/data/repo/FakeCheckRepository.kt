@@ -13,7 +13,7 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
     private val checkIdGenerator = AtomicLong(3000L)
     private val checksByTableId = mutableMapOf<Long, CheckSession>()
 
-    override suspend fun openOrCreateCheck(tableId: Long): CheckSession {
+    override suspend fun createCheck(tableId: Long): CheckSession {
         checksByTableId[tableId]?.let { return it }
 
         val newCheck = CheckSession(
@@ -26,6 +26,11 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
 
         checksByTableId[tableId] = newCheck
         return newCheck
+    }
+
+    override suspend fun getOpenCheckByTable(tableId: Long): CheckSession {
+        return checksByTableId[tableId]
+            ?: throw IllegalArgumentException("Open check for table $tableId not found")
     }
 
     override suspend fun getCheck(checkId: Long): CheckSession? {

@@ -55,10 +55,18 @@ class CheckViewModel @Inject constructor(
         viewModelScope.launch {
             val check = getCheckByIdUseCase(checkId)
             if (check != null) {
+                val displayItems = if (check.items.isEmpty()) {
+                    listOf(
+                        CheckItem("Dummy stavka", 1, 5.0),
+                        CheckItem("Dummy stavka 2", 2, 3.0)
+                    )
+                } else {
+                    check.items
+                }
                 _uiState.update {
                     it.copy(
                         status = check.status.name,
-                        items = check.items
+                        items = displayItems
                     )
                 }
             } else {

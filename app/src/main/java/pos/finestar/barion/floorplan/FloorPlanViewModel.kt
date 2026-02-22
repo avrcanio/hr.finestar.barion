@@ -13,13 +13,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pos.finestar.barion.domain.model.FloorTable
+import pos.finestar.barion.domain.model.TableStatus
+import pos.finestar.barion.domain.usecase.CreateCheckForTableUseCase
 import pos.finestar.barion.domain.usecase.GetFloorTablesUseCase
-import pos.finestar.barion.domain.usecase.OpenOrCreateCheckForTableUseCase
+import pos.finestar.barion.domain.usecase.GetOpenCheckForTableUseCase
 
 @HiltViewModel
 class FloorPlanViewModel @Inject constructor(
     private val getFloorTables: GetFloorTablesUseCase,
-    private val openOrCreateCheckForTable: OpenOrCreateCheckForTableUseCase
+    private val createCheckForTable: CreateCheckForTableUseCase,
+    private val getOpenCheckForTable: GetOpenCheckForTableUseCase
 ) : ViewModel() {
 
     data class UiState(
@@ -48,8 +51,19 @@ class FloorPlanViewModel @Inject constructor(
 
     fun onTableClick(tableId: Long) {
         viewModelScope.launch {
-            val check = openOrCreateCheckForTable(tableId)
-            _events.emit(Event.OpenCheck(check.checkId, check.tableName))
+            val table = _uiState.value.tables.firstOrNull { it.id == tableId }
+            val check = if (table?.status == TableStatus.OPEN) {
+                getOpenCheckForTable(tableId)
+            } else {
+                createCheckForTable(tableId)
+            }
+
+            _events.emit(
+                Event.OpenCheck(
+                    checkId = check.checkId,
+                    tableName = table?.name ?: check.tableName
+                )
+            )
         }
     }
 

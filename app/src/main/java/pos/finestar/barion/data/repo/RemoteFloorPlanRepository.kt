@@ -19,8 +19,12 @@ class RemoteFloorPlanRepository @Inject constructor(
 
     override suspend fun getTables(): List<FloorTable> {
         return try {
-            val response = api.getActiveLayout()
-            response.tables.map { table ->
+            val activeLayout = api.getActiveLayout()
+            val tableStatuses = api.getTableStatuses(activeLayout.layout.id)
+                .associateBy { it.tableId }
+
+            activeLayout.tables.map { table ->
+                val statusDto = tableStatuses[table.tableId]
                 FloorTable(
                     id = table.tableId,
                     name = table.label,
@@ -28,7 +32,8 @@ class RemoteFloorPlanRepository @Inject constructor(
                     y = table.y,
                     width = table.w,
                     height = table.h,
-                    status = TableStatus.FREE
+                    status = statusDto.toDomainStatus(),
+                    openCheckId = statusDto?.openCheckId
                 )
             }
         } catch (httpException: HttpException) {
@@ -47,5 +52,10 @@ class RemoteFloorPlanRepository @Inject constructor(
         return runCatching {
             gson.fromJson(raw, ApiErrorDto::class.java).detail
         }.getOrNull()
+    }
+
+    private fun pos.finestar.barion.api.model.TableStatusDto?.toDomainStatus(): TableStatus {
+        val raw = this?.status.orEmpty()
+        return if (raw == "FREE") TableStatus.FREE else TableStatus.OPEN
     }
 }

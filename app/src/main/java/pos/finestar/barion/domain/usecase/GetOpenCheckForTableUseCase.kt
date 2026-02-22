@@ -4,8 +4,8 @@ import javax.inject.Inject
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.repo.CheckRepository
 
-class OpenOrCreateCheckForTableUseCase @Inject constructor(
+class GetOpenCheckForTableUseCase @Inject constructor(
     private val repository: CheckRepository
 ) {
-    suspend operator fun invoke(tableId: Long): CheckSession = repository.openOrCreateCheck(tableId)
+    suspend operator fun invoke(tableId: Long): CheckSession = repository.getOpenCheckByTable(tableId)
 }
