@@ -1,0 +1,11 @@
+.gradle/
+.gradle-tmp/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+/app/build/
