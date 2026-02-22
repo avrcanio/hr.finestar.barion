@@ -6,6 +6,8 @@ plugins {
 }
 
 android {
+    val apiBaseUrl = (project.findProperty("BARION_API_BASE_URL") as String?) ?: "http://10.0.2.2:8000/"
+
     namespace = "pos.finestar.barion"
     compileSdk = 35
 
@@ -17,6 +19,7 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {

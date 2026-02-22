@@ -39,20 +39,28 @@ class FloorPlanViewModel @Inject constructor(
     val events: SharedFlow<Event> = _events.asSharedFlow()
 
     init {
-        loadTables()
+        loadTables(forceLoading = true)
+    }
+
+    fun onResume() {
+        loadTables(forceLoading = false)
     }
 
     fun onTableClick(tableId: Long) {
         viewModelScope.launch {
             val check = openOrCreateCheckForTable(tableId)
-            loadTables()
             _events.emit(Event.OpenCheck(check.checkId, check.tableName))
         }
     }
 
-    private fun loadTables() {
+    private fun loadTables(forceLoading: Boolean) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            if (forceLoading) {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            } else {
+                _uiState.update { it.copy(error = null) }
+            }
+
             runCatching { getFloorTables() }
                 .onSuccess { tables ->
                     _uiState.update {

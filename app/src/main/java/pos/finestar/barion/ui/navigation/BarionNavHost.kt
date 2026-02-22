@@ -43,7 +43,8 @@ fun BarionNavHost() {
 
             FloorPlanScreen(
                 state = uiState.value,
-                onTableClick = vm::onTableClick
+                onTableClick = vm::onTableClick,
+                onRefresh = vm::onResume
             )
         }
 

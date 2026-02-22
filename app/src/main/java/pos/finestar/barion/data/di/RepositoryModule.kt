@@ -5,7 +5,8 @@ import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
-import pos.finestar.barion.data.repo.FakePosRepository
+import pos.finestar.barion.data.repo.FakeCheckRepository
+import pos.finestar.barion.data.repo.RemoteFloorPlanRepository
 import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.repo.FloorPlanRepository
 
@@ -15,9 +16,9 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
-    abstract fun bindFloorPlanRepository(repository: FakePosRepository): FloorPlanRepository
+    abstract fun bindFloorPlanRepository(repository: RemoteFloorPlanRepository): FloorPlanRepository
 
     @Binds
     @Singleton
-    abstract fun bindCheckRepository(repository: FakePosRepository): CheckRepository
+    abstract fun bindCheckRepository(repository: FakeCheckRepository): CheckRepository
 }
