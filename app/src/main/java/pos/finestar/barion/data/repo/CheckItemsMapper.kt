@@ -21,6 +21,8 @@ object CheckItemsMapper {
         val items = (payload.getArray("items") ?: payload.getArray("check_items") ?: JsonArray())
             .mapNotNull { it.asJsonObjectOrNull() }
             .map { item ->
+                val itemId = item.getLong("id") ?: item.getLong("item_id")
+                val productId = item.getLong("product_id") ?: item.getObject("product")?.getLong("id")
                 val name = item.getString("product_name")
                     ?: item.getString("name")
                     ?: item.getObject("product")?.getString("name")
@@ -32,7 +34,13 @@ object CheckItemsMapper {
                     ?: item.getDouble("price")
                     ?: item.getDouble("line_total")
                     ?: 0.0
-                CheckItem(name = name, qty = qty, price = price)
+                CheckItem(
+                    itemId = itemId,
+                    productId = productId,
+                    name = name,
+                    qty = qty,
+                    price = price
+                )
             }
 
         val subtotal = totalsNode?.getDouble("subtotal") ?: payload.getDouble("subtotal") ?: 0.0

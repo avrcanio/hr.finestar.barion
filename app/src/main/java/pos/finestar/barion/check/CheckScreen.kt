@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -20,10 +22,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,10 +47,26 @@ import pos.finestar.barion.domain.model.CheckItem
 fun CheckScreen(
     state: CheckViewModel.UiState,
     onBack: () -> Unit,
-    onAddItem: () -> Unit,
-    onPay: () -> Unit
+    onAddItem: (productId: Long, qty: Int) -> Unit,
+    onIncreaseQty: (CheckItem) -> Unit,
+    onDecreaseQty: (CheckItem) -> Unit,
+    onRemoveItem: (CheckItem) -> Unit,
+    onPay: () -> Unit,
+    onMessageShown: () -> Unit
 ) {
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(state.message) {
+        val message = state.message
+        if (!message.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(message)
+            onMessageShown()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(),
@@ -64,10 +93,18 @@ fun CheckScreen(
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(onClick = onAddItem, modifier = Modifier.weight(1f)) {
+                Button(
+                    onClick = { showAddDialog = true },
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.isLoading && !state.isMutating
+                ) {
                     Text("Dodaj stavku")
                 }
-                Button(onClick = onPay, modifier = Modifier.weight(1f)) {
+                Button(
+                    onClick = onPay,
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.isLoading && !state.isMutating
+                ) {
                     Text("Naplata")
                 }
             }
@@ -109,10 +146,74 @@ fun CheckScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(text = "Check #${state.checkId}", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
-                    ItemsList(items = state.items)
-                    state.message?.let {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = it, style = MaterialTheme.typography.bodySmall)
+                    ItemsList(
+                        items = state.items,
+                        isMutating = state.isMutating,
+                        onIncreaseQty = onIncreaseQty,
+                        onDecreaseQty = onDecreaseQty,
+                        onRemoveItem = onRemoveItem
+                    )
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AddItemDialog(
+            products = state.productOptions,
+            isSubmitting = state.isMutating,
+            onDismiss = { showAddDialog = false },
+            onConfirm = { productId, qty ->
+                onAddItem(productId, qty)
+                showAddDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun ItemsList(
+    items: List<CheckItem>,
+    isMutating: Boolean,
+    onIncreaseQty: (CheckItem) -> Unit,
+    onDecreaseQty: (CheckItem) -> Unit,
+    onRemoveItem: (CheckItem) -> Unit
+) {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(items) { item ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = item.name)
+                        Text(text = "${"%.2f".format(item.qty * item.price)} EUR")
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { onDecreaseQty(item) }, enabled = !isMutating && item.itemId != null) {
+                                Text("-")
+                            }
+                            Text(text = "${item.qty}x")
+                            TextButton(onClick = { onIncreaseQty(item) }, enabled = !isMutating && item.itemId != null) {
+                                Text("+")
+                            }
+                        }
+
+                        IconButton(onClick = { onRemoveItem(item) }, enabled = !isMutating && item.itemId != null) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        }
                     }
                 }
             }
@@ -121,20 +222,59 @@ fun CheckScreen(
 }
 
 @Composable
-private fun ItemsList(items: List<CheckItem>) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(items) { item ->
-            Card(modifier = Modifier.fillMaxWidth()) {
+private fun AddItemDialog(
+    products: List<CheckViewModel.ProductOption>,
+    isSubmitting: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (productId: Long, qty: Int) -> Unit
+) {
+    var selectedProductId by rememberSaveable {
+        mutableLongStateOf(products.firstOrNull()?.id ?: 0L)
+    }
+    var qty by rememberSaveable { mutableIntStateOf(1) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Dodaj stavku") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                products.forEach { product ->
+                    val isSelected = selectedProductId == product.id
+                    Button(
+                        onClick = { selectedProductId = product.id },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isSubmitting
+                    ) {
+                        Text(if (isSelected) "✓ ${product.label}" else product.label)
+                    }
+                }
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "${item.qty}x ${item.name}")
-                    Text(text = "${"%.2f".format(item.qty * item.price)} €")
+                    Text("Qty:")
+                    TextButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }, enabled = !isSubmitting) {
+                        Text("-")
+                    }
+                    Text("$qty")
+                    TextButton(onClick = { qty += 1 }, enabled = !isSubmitting) {
+                        Text("+")
+                    }
                 }
             }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedProductId, qty) },
+                enabled = !isSubmitting && selectedProductId > 0L
+            ) {
+                Text("Dodaj")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+                Text("Odustani")
+            }
         }
-    }
+    )
 }

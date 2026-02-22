@@ -27,6 +27,18 @@ data class CheckDto(
     val closedAt: String?
 )
 
+data class AddCheckItemRequestDto(
+    @SerializedName("product_id")
+    val productId: Long,
+    @SerializedName("qty")
+    val qty: Int
+)
+
+data class UpdateCheckItemQtyRequestDto(
+    @SerializedName("qty")
+    val qty: Int
+)
+
 data class TableStatusDto(
     @SerializedName("table_id")
     val tableId: Long,

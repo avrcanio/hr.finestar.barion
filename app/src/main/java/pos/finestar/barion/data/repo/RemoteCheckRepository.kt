@@ -4,8 +4,11 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import pos.finestar.barion.api.PosApi
+import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
+import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
+import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
@@ -36,6 +39,24 @@ class RemoteCheckRepository @Inject constructor(
             .getOrElse { checkCache[checkId] }
     }
 
+    override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession {
+        api.addCheckItem(checkId = checkId, request = AddCheckItemRequestDto(productId = productId, qty = qty))
+        return requireNotNull(getCheck(checkId)) { "Check $checkId not found after add item." }
+    }
+
+    override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession {
+        api.updateCheckItemQty(itemId = itemId, request = UpdateCheckItemQtyRequestDto(qty = qty))
+        return requireNotNull(getCheck(checkId)) { "Check $checkId not found after update item." }
+    }
+
+    override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession {
+        val response = api.deleteCheckItem(itemId = itemId)
+        if (!response.isSuccessful) {
+            throw IllegalStateException("Delete item failed with code ${response.code()}")
+        }
+        return requireNotNull(getCheck(checkId)) { "Check $checkId not found after remove item." }
+    }
+
     private fun cache(check: CheckSession) {
         checkCache[check.checkId] = check
     }
@@ -47,7 +68,9 @@ class RemoteCheckRepository @Inject constructor(
             tableId = tableId,
             tableName = "Sto $tableId",
             status = mappedStatus,
-            items = emptyList()
+            items = listOf(
+                CheckItem(name = "Dummy stavka", qty = 1, price = 5.0)
+            )
         )
     }
 }

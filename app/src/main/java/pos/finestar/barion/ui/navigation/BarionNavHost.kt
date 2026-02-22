@@ -61,7 +61,11 @@ fun BarionNavHost() {
                 state = uiState.value,
                 onBack = { navController.popBackStack() },
                 onAddItem = vm::onAddItem,
-                onPay = vm::onPay
+                onIncreaseQty = vm::onIncreaseQty,
+                onDecreaseQty = vm::onDecreaseQty,
+                onRemoveItem = vm::onRemoveItem,
+                onPay = vm::onPay,
+                onMessageShown = vm::onMessageShown
             )
         }
     }

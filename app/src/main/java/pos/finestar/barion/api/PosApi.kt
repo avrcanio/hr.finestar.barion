@@ -2,12 +2,17 @@ package pos.finestar.barion.api
 
 import com.google.gson.JsonObject
 import pos.finestar.barion.api.model.ActiveLayoutDto
+import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
 import pos.finestar.barion.api.model.TableStatusDto
+import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
+import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -35,4 +40,21 @@ interface PosApi {
     suspend fun getCheckItems(
         @Path("checkId") checkId: Long
     ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/items/")
+    suspend fun addCheckItem(
+        @Path("checkId") checkId: Long,
+        @Body request: AddCheckItemRequestDto
+    ): JsonObject
+
+    @PATCH("/api/pos/check-items/{itemId}/")
+    suspend fun updateCheckItemQty(
+        @Path("itemId") itemId: Long,
+        @Body request: UpdateCheckItemQtyRequestDto
+    ): JsonObject
+
+    @DELETE("/api/pos/check-items/{itemId}/")
+    suspend fun deleteCheckItem(
+        @Path("itemId") itemId: Long
+    ): Response<Unit>
 }

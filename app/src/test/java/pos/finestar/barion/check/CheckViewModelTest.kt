@@ -14,7 +14,10 @@ import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
+import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
+import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
+import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
 import pos.finestar.barion.testutil.MainDispatcherRule
 import pos.finestar.barion.ui.navigation.NavRoutes
 
@@ -35,12 +38,15 @@ class CheckViewModelTest {
                     tableId = 7L,
                     tableName = "Sto 7",
                     status = TableStatus.OPEN,
-                    items = listOf(CheckItem("Espresso", 1, 2.5)),
+                    items = listOf(CheckItem(name = "Espresso", qty = 1, price = 2.5)),
                     subtotal = 2.5,
                     tax = 0.5,
                     total = 3.0
                 )
             }
+            override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
         }
 
         val vm = CheckViewModel(
@@ -50,7 +56,10 @@ class CheckViewModelTest {
                     NavRoutes.ARG_TABLE_NAME to "Sto+7"
                 )
             ),
-            getCheckByIdUseCase = GetCheckByIdUseCase(repository)
+            getCheckByIdUseCase = GetCheckByIdUseCase(repository),
+            addItemToCheckUseCase = AddItemToCheckUseCase(repository),
+            updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository)
         )
 
         advanceUntilIdle()
@@ -70,6 +79,9 @@ class CheckViewModelTest {
             override suspend fun getCheck(checkId: Long): CheckSession {
                 throw IllegalStateException("Network error")
             }
+            override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
         }
 
         val vm = CheckViewModel(
@@ -79,7 +91,10 @@ class CheckViewModelTest {
                     NavRoutes.ARG_TABLE_NAME to "Sto+7"
                 )
             ),
-            getCheckByIdUseCase = GetCheckByIdUseCase(repository)
+            getCheckByIdUseCase = GetCheckByIdUseCase(repository),
+            addItemToCheckUseCase = AddItemToCheckUseCase(repository),
+            updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository)
         )
 
         advanceUntilIdle()
