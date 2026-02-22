@@ -33,7 +33,8 @@ class RemoteFloorPlanRepository @Inject constructor(
                     width = table.w,
                     height = table.h,
                     status = statusDto.toDomainStatus(),
-                    openCheckId = statusDto?.openCheckId
+                    openCheckId = statusDto?.openCheckId,
+                    itemCount = statusDto?.itemCount
                 )
             }
         } catch (httpException: HttpException) {

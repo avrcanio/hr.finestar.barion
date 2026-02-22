@@ -103,9 +103,9 @@ fun CheckScreen(
                 Button(
                     onClick = onPay,
                     modifier = Modifier.weight(1f),
-                    enabled = !state.isLoading && !state.isMutating
+                    enabled = !state.isLoading && !state.isMutating && state.items.isNotEmpty()
                 ) {
-                    Text("Naplata")
+                    Text(if (state.isMutating) "..." else "Naplata")
                 }
             }
         }
@@ -153,6 +153,12 @@ fun CheckScreen(
                         onDecreaseQty = onDecreaseQty,
                         onRemoveItem = onRemoveItem
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TotalsBlock(
+                        subtotal = state.subtotal,
+                        tax = state.tax,
+                        total = state.total
+                    )
                 }
             }
         }
@@ -167,6 +173,43 @@ fun CheckScreen(
                 onAddItem(productId, qty)
                 showAddDialog = false
             }
+        )
+    }
+}
+
+@Composable
+private fun TotalsBlock(
+    subtotal: Double,
+    tax: Double,
+    total: Double
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            TotalsRow(label = "Subtotal", value = subtotal)
+            TotalsRow(label = "Tax", value = tax)
+            TotalsRow(label = "Total", value = total, emphasize = true)
+        }
+    }
+}
+
+@Composable
+private fun TotalsRow(label: String, value: Double, emphasize: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = if (emphasize) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = "${"%.2f".format(value)} EUR",
+            style = if (emphasize) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium
         )
     }
 }

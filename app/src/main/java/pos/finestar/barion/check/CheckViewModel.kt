@@ -150,19 +150,10 @@ class CheckViewModel @Inject constructor(
     }
 
     private fun applyLoadedCheck(check: CheckSession) {
-        val displayItems = if (check.items.isEmpty()) {
-            listOf(
-                CheckItem(name = "Dummy stavka", qty = 1, price = 5.0),
-                CheckItem(name = "Dummy stavka 2", qty = 2, price = 3.0)
-            )
-        } else {
-            check.items
-        }
-
         _uiState.update {
             it.copy(
                 status = check.status.name,
-                items = displayItems,
+                items = check.items,
                 subtotal = check.subtotal,
                 tax = check.tax,
                 total = check.total,

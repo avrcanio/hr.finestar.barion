@@ -30,4 +30,33 @@ class CheckItemsMapperTest {
         assertEquals(6.2, mapped.subtotal, 0.0001)
         assertEquals(7.44, mapped.total, 0.0001)
     }
+
+    @Test
+    fun `maps stale payload variant with check_items and quantity price keys`() {
+        val json = JsonParser.parseString(
+            """
+            {
+              "id": 30,
+              "table_id": 9,
+              "status": "OPEN",
+              "check_items": [
+                { "item_id": 501, "product_id": 33, "name": "Tonic", "quantity": 3, "price": 3.5 }
+              ],
+              "subtotal": 10.5,
+              "tax": 2.1,
+              "total": 12.6
+            }
+            """.trimIndent()
+        ).asJsonObject
+
+        val mapped = CheckItemsMapper.toCheckSession(json)
+
+        assertEquals(30L, mapped.checkId)
+        assertEquals(9L, mapped.tableId)
+        assertEquals(1, mapped.items.size)
+        assertEquals(501L, mapped.items.first().itemId)
+        assertEquals(33L, mapped.items.first().productId)
+        assertEquals(3, mapped.items.first().qty)
+        assertEquals(12.6, mapped.total, 0.0001)
+    }
 }

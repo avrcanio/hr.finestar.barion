@@ -117,12 +117,21 @@ private fun FloorCanvas(
                     .clickable { onTableClick(table.id) },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = table.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = table.name,
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                    if ((table.itemCount ?: 0) > 0) {
+                        Text(
+                            text = "${table.itemCount} item(s)",
+                            color = Color.White,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
             }
         }
     }

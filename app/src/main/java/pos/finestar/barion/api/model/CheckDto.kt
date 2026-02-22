@@ -45,5 +45,7 @@ data class TableStatusDto(
     @SerializedName("open_check_id")
     val openCheckId: Long?,
     @SerializedName("status")
-    val status: String
+    val status: String,
+    @SerializedName("item_count")
+    val itemCount: Int? = null
 )
