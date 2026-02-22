@@ -54,13 +54,6 @@ fun FloorPlanScreen(
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
-                    state.selectedTableId?.let {
-                        Text(
-                            text = "Odabran stol: $it",
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
                     FloorCanvas(
                         tables = state.tables,
                         modifier = Modifier

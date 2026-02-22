@@ -7,5 +7,6 @@ data class FloorTable(
     val y: Float,
     val width: Float,
     val height: Float,
-    val status: TableStatus
+    val status: TableStatus,
+    val openCheckId: Long? = null
 )
