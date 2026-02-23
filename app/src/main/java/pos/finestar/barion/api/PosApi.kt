@@ -40,6 +40,22 @@ interface PosApi {
     @GET("/api/pos/active-layout/")
     suspend fun getActiveLayout(): ActiveLayoutDto
 
+    @GET("/api/drink-categories/")
+    suspend fun getDrinkCategories(
+        @Query("include_inactive") includeInactive: Int? = null
+    ): JsonObject
+
+    @GET("/api/pos/drink-categories/display/")
+    suspend fun getDrinkCategoryDisplay(
+        @Query("root_id") rootId: Long
+    ): JsonObject
+
+    @GET("/api/pos/products/search/")
+    suspend fun searchProducts(
+        @Query("q") query: String? = null,
+        @Query("drink_category_id") drinkCategoryId: Long? = null
+    ): JsonObject
+
     @GET("/api/pos/table-status/")
     suspend fun getTableStatuses(
         @Query("layout_id") layoutId: Long

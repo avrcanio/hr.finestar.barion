@@ -111,6 +111,10 @@ fun BarionNavHost() {
             CheckScreen(
                 state = uiState.value,
                 onBack = { navController.popBackStack() },
+                onOpenAddDialog = vm::onOpenAddDialog,
+                onDismissAddDialog = vm::onDismissAddDialog,
+                onAddItemQueryChanged = vm::onAddItemQueryChanged,
+                onCategorySelected = vm::onCategorySelected,
                 onAddItem = vm::onAddItem,
                 onIncreaseQty = vm::onIncreaseQty,
                 onDecreaseQty = vm::onDecreaseQty,

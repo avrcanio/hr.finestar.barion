@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,8 +16,11 @@ import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
+import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
+import pos.finestar.barion.domain.usecase.GetDrinkCategoryDisplayUseCase
 import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
+import pos.finestar.barion.domain.usecase.SearchProductsUseCase
 import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
 import pos.finestar.barion.ui.navigation.NavRoutes
 
@@ -28,10 +32,18 @@ class CheckViewModel @Inject constructor(
     private val updateCheckItemQtyUseCase: UpdateCheckItemQtyUseCase,
     private val removeItemFromCheckUseCase: RemoveItemFromCheckUseCase,
     private val issueReceiptUseCase: IssueReceiptUseCase,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val getDrinkCategoriesUseCase: GetDrinkCategoriesUseCase,
+    private val getDrinkCategoryDisplayUseCase: GetDrinkCategoryDisplayUseCase,
+    private val searchProductsUseCase: SearchProductsUseCase
 ) : ViewModel() {
 
     data class ProductOption(
+        val id: Long,
+        val label: String
+    )
+
+    data class CategoryOption(
         val id: Long,
         val label: String
     )
@@ -51,11 +63,18 @@ class CheckViewModel @Inject constructor(
         val showPayPinDialog: Boolean = false,
         val payPin: String = "",
         val payPinError: String? = null,
-        val productOptions: List<ProductOption> = defaultProducts()
+        val showAddDialog: Boolean = false,
+        val isCatalogLoading: Boolean = false,
+        val catalogError: String? = null,
+        val addItemQuery: String = "",
+        val categoryOptions: List<CategoryOption> = emptyList(),
+        val selectedCategoryId: Long? = null,
+        val productOptions: List<ProductOption> = emptyList()
     )
 
     private val checkId: Long = savedStateHandle[NavRoutes.ARG_CHECK_ID] ?: 0L
     private val tableName: String = savedStateHandle[NavRoutes.ARG_TABLE_NAME] ?: "Unknown"
+    private var searchJob: Job? = null
 
     private val _uiState = MutableStateFlow(
         UiState(
@@ -67,6 +86,31 @@ class CheckViewModel @Inject constructor(
 
     init {
         loadCheck()
+    }
+
+    fun onOpenAddDialog() {
+        _uiState.update {
+            it.copy(
+                showAddDialog = true,
+                addItemQuery = "",
+                catalogError = null
+            )
+        }
+        loadCatalogAndProducts()
+    }
+
+    fun onDismissAddDialog() {
+        _uiState.update { it.copy(showAddDialog = false) }
+    }
+
+    fun onAddItemQueryChanged(query: String) {
+        _uiState.update { it.copy(addItemQuery = query) }
+        searchProducts()
+    }
+
+    fun onCategorySelected(categoryId: Long?) {
+        _uiState.update { it.copy(selectedCategoryId = categoryId) }
+        searchProducts()
     }
 
     fun onAddItem(productId: Long, qty: Int) {
@@ -166,6 +210,90 @@ class CheckViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
+    private fun loadCatalogAndProducts() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isCatalogLoading = true, catalogError = null) }
+            runCatching {
+                val categories = getDrinkCategoriesUseCase()
+                val rootId = categories.firstOrNull { it.parentId == null }?.id
+                val displayCategories = rootId?.let {
+                    runCatching { getDrinkCategoryDisplayUseCase(it) }
+                        .getOrNull()
+                        ?.categories
+                }.orEmpty()
+
+                val preferredCategories = when {
+                    displayCategories.isNotEmpty() -> displayCategories
+                    rootId != null -> categories.filter { it.parentId == rootId }
+                    else -> categories
+                }
+
+                val selectedCategoryId = preferredCategories.firstOrNull()?.id
+                val products = searchProductsUseCase(query = null, drinkCategoryId = selectedCategoryId)
+
+                Triple(
+                    preferredCategories.map { CategoryOption(id = it.id, label = it.name) },
+                    selectedCategoryId,
+                    products.map { ProductOption(id = it.id, label = "${it.name} (${"%.2f".format(it.price)} EUR)") }
+                )
+            }.onSuccess { (categoryOptions, selectedCategoryId, productOptions) ->
+                _uiState.update {
+                    it.copy(
+                        isCatalogLoading = false,
+                        categoryOptions = categoryOptions,
+                        selectedCategoryId = selectedCategoryId,
+                        productOptions = productOptions,
+                        catalogError = null
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        isCatalogLoading = false,
+                        categoryOptions = emptyList(),
+                        selectedCategoryId = null,
+                        productOptions = emptyList(),
+                        catalogError = throwable.message ?: "Ne mogu ucitati kategorije/artikle."
+                    )
+                }
+            }
+        }
+    }
+
+    private fun searchProducts() {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            val state = _uiState.value
+            _uiState.update { it.copy(isCatalogLoading = true, catalogError = null) }
+            runCatching {
+                searchProductsUseCase(
+                    query = state.addItemQuery,
+                    drinkCategoryId = state.selectedCategoryId
+                )
+            }.onSuccess { products ->
+                _uiState.update {
+                    it.copy(
+                        isCatalogLoading = false,
+                        productOptions = products.map { p ->
+                            ProductOption(
+                                id = p.id,
+                                label = "${p.name} (${"%.2f".format(p.price)} EUR)"
+                            )
+                        }
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        isCatalogLoading = false,
+                        productOptions = emptyList(),
+                        catalogError = throwable.message ?: "Ne mogu ucitati artikle."
+                    )
+                }
+            }
+        }
+    }
+
     private fun mutateCheck(action: suspend () -> CheckSession) {
         viewModelScope.launch {
             _uiState.update { it.copy(isMutating = true) }
@@ -223,17 +351,6 @@ class CheckViewModel @Inject constructor(
                 tax = check.tax,
                 total = check.total,
                 error = null
-            )
-        }
-    }
-
-    companion object {
-        private fun defaultProducts(): List<ProductOption> {
-            return listOf(
-                ProductOption(1L, "Espresso"),
-                ProductOption(2L, "Coca-Cola"),
-                ProductOption(3L, "Voda"),
-                ProductOption(4L, "Gin Tonic")
             )
         }
     }

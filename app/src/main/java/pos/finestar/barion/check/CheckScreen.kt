@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,6 +19,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +36,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -50,6 +51,10 @@ import pos.finestar.barion.domain.model.CheckItem
 fun CheckScreen(
     state: CheckViewModel.UiState,
     onBack: () -> Unit,
+    onOpenAddDialog: () -> Unit,
+    onDismissAddDialog: () -> Unit,
+    onAddItemQueryChanged: (String) -> Unit,
+    onCategorySelected: (Long?) -> Unit,
     onAddItem: (productId: Long, qty: Int) -> Unit,
     onIncreaseQty: (CheckItem) -> Unit,
     onDecreaseQty: (CheckItem) -> Unit,
@@ -61,7 +66,6 @@ fun CheckScreen(
     onMessageShown: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
-    var showAddDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.message) {
         val message = state.message
@@ -100,7 +104,7 @@ fun CheckScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
-                    onClick = { showAddDialog = true },
+                    onClick = onOpenAddDialog,
                     modifier = Modifier.weight(1f),
                     enabled = !state.isLoading && !state.isMutating
                 ) {
@@ -170,14 +174,21 @@ fun CheckScreen(
         }
     }
 
-    if (showAddDialog) {
+    if (state.showAddDialog) {
         AddItemDialog(
+            query = state.addItemQuery,
+            categories = state.categoryOptions,
+            selectedCategoryId = state.selectedCategoryId,
             products = state.productOptions,
-            isSubmitting = state.isMutating,
-            onDismiss = { showAddDialog = false },
+            isLoading = state.isCatalogLoading,
+            catalogError = state.catalogError,
+            isSubmitting = state.isMutating || state.isCatalogLoading,
+            onDismiss = onDismissAddDialog,
+            onQueryChanged = onAddItemQueryChanged,
+            onCategorySelected = onCategorySelected,
             onConfirm = { productId, qty ->
                 onAddItem(productId, qty)
-                showAddDialog = false
+                onDismissAddDialog()
             }
         )
     }
@@ -283,21 +294,71 @@ private fun ItemsList(
 
 @Composable
 private fun AddItemDialog(
+    query: String,
+    categories: List<CheckViewModel.CategoryOption>,
+    selectedCategoryId: Long?,
     products: List<CheckViewModel.ProductOption>,
+    isLoading: Boolean,
+    catalogError: String?,
     isSubmitting: Boolean,
     onDismiss: () -> Unit,
+    onQueryChanged: (String) -> Unit,
+    onCategorySelected: (Long?) -> Unit,
     onConfirm: (productId: Long, qty: Int) -> Unit
 ) {
     var selectedProductId by rememberSaveable {
         mutableLongStateOf(products.firstOrNull()?.id ?: 0L)
     }
     var qty by rememberSaveable { mutableIntStateOf(1) }
+    LaunchedEffect(products) {
+        if (products.none { it.id == selectedProductId }) {
+            selectedProductId = products.firstOrNull()?.id ?: 0L
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Dodaj stavku") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = onQueryChanged,
+                    label = { Text("Pretraga") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSubmitting
+                )
+                if (categories.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(categories) { category ->
+                            FilterChip(
+                                selected = selectedCategoryId == category.id,
+                                onClick = { onCategorySelected(category.id) },
+                                label = { Text(category.label) },
+                                enabled = !isSubmitting
+                            )
+                        }
+                    }
+                }
+                if (!catalogError.isNullOrBlank()) {
+                    Text(
+                        text = catalogError,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                if (isLoading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
                 products.forEach { product ->
                     val isSelected = selectedProductId == product.id
                     Button(
@@ -307,6 +368,12 @@ private fun AddItemDialog(
                     ) {
                         Text(if (isSelected) "✓ ${product.label}" else product.label)
                     }
+                }
+                if (!isLoading && products.isEmpty()) {
+                    Text(
+                        text = "Nema artikala za odabrani filter.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -326,7 +393,7 @@ private fun AddItemDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(selectedProductId, qty) },
-                enabled = !isSubmitting && selectedProductId > 0L
+                enabled = !isSubmitting && !isLoading && selectedProductId > 0L
             ) {
                 Text("Dodaj")
             }
