@@ -6,6 +6,7 @@ import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
+import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.MeResponseDto
 import pos.finestar.barion.api.model.PinLoginRequestDto
 import pos.finestar.barion.api.model.PinLoginResponseDto
@@ -75,4 +76,10 @@ interface PosApi {
     suspend fun deleteCheckItem(
         @Path("itemId") itemId: Long
     ): Response<Unit>
+
+    @POST("/api/pos/checks/{checkId}/issue-receipt/")
+    suspend fun issueReceipt(
+        @Path("checkId") checkId: Long,
+        @Body request: IssueReceiptRequestDto = IssueReceiptRequestDto()
+    ): JsonObject
 }

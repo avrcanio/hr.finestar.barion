@@ -14,9 +14,11 @@ import org.junit.Test
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
+import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
+import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
 import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
 import pos.finestar.barion.testutil.MainDispatcherRule
@@ -27,6 +29,13 @@ class CheckViewModelTest {
 
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
+
+    private val authRepository = object : AuthRepository {
+        override suspend fun bootstrapSession(): Boolean = true
+        override suspend fun loginWithPin(pin: String, username: String?, deviceId: String?) = Unit
+        override suspend fun verifyPin(pin: String) = Unit
+        override suspend fun logout() = Unit
+    }
 
     @Test
     fun `loads items and clears loading state`() = runTest {
@@ -48,6 +57,7 @@ class CheckViewModelTest {
             override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
         val vm = CheckViewModel(
@@ -60,7 +70,9 @@ class CheckViewModelTest {
             getCheckByIdUseCase = GetCheckByIdUseCase(repository),
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
-            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository)
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            authRepository = authRepository
         )
 
         advanceUntilIdle()
@@ -83,6 +95,7 @@ class CheckViewModelTest {
             override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
         val vm = CheckViewModel(
@@ -95,7 +108,9 @@ class CheckViewModelTest {
             getCheckByIdUseCase = GetCheckByIdUseCase(repository),
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
-            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository)
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            authRepository = authRepository
         )
 
         advanceUntilIdle()
@@ -126,6 +141,7 @@ class CheckViewModelTest {
 
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
         val vm = CheckViewModel(
@@ -138,7 +154,9 @@ class CheckViewModelTest {
             getCheckByIdUseCase = GetCheckByIdUseCase(repository),
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
-            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository)
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            authRepository = authRepository
         )
 
         advanceUntilIdle()

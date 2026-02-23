@@ -39,6 +39,11 @@ data class UpdateCheckItemQtyRequestDto(
     val qty: Int
 )
 
+data class IssueReceiptRequestDto(
+    @SerializedName("fiscalize")
+    val fiscalize: Boolean = true
+)
+
 data class TableStatusDto(
     @SerializedName("table_id")
     val tableId: Long,

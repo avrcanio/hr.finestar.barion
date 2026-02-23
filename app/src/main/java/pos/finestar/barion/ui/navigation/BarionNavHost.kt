@@ -116,6 +116,9 @@ fun BarionNavHost() {
                 onDecreaseQty = vm::onDecreaseQty,
                 onRemoveItem = vm::onRemoveItem,
                 onPay = vm::onPay,
+                onPayPinChanged = vm::onPayPinChanged,
+                onPayPinDismiss = vm::onPayPinDismiss,
+                onConfirmPay = vm::onConfirmPay,
                 onMessageShown = vm::onMessageShown
             )
         }

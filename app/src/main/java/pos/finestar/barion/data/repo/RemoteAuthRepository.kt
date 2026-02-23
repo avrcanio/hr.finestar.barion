@@ -7,6 +7,7 @@ import okhttp3.ResponseBody
 import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.ApiErrorDto
 import pos.finestar.barion.api.model.PinLoginRequestDto
+import pos.finestar.barion.api.model.PinVerifyRequestDto
 import pos.finestar.barion.data.auth.SessionStore
 import pos.finestar.barion.domain.repo.AuthRepository
 import retrofit2.HttpException
@@ -49,6 +50,15 @@ class RemoteAuthRepository @Inject constructor(
         } catch (httpException: HttpException) {
             val detail = parseErrorDetail(httpException.response()?.errorBody())
             throw IllegalStateException(detail ?: "PIN login failed.")
+        }
+    }
+
+    override suspend fun verifyPin(pin: String) {
+        try {
+            api.pinVerify(PinVerifyRequestDto(pin = pin))
+        } catch (httpException: HttpException) {
+            val detail = parseErrorDetail(httpException.response()?.errorBody())
+            throw IllegalStateException(detail ?: "PIN verify failed.")
         }
     }
 

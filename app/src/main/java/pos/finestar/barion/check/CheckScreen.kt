@@ -21,6 +21,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -39,7 +40,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
 import pos.finestar.barion.domain.model.CheckItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,6 +55,9 @@ fun CheckScreen(
     onDecreaseQty: (CheckItem) -> Unit,
     onRemoveItem: (CheckItem) -> Unit,
     onPay: () -> Unit,
+    onPayPinChanged: (String) -> Unit,
+    onPayPinDismiss: () -> Unit,
+    onConfirmPay: () -> Unit,
     onMessageShown: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -173,6 +179,17 @@ fun CheckScreen(
                 onAddItem(productId, qty)
                 showAddDialog = false
             }
+        )
+    }
+
+    if (state.showPayPinDialog) {
+        PayPinDialog(
+            pin = state.payPin,
+            error = state.payPinError,
+            isSubmitting = state.isMutating,
+            onPinChanged = onPayPinChanged,
+            onDismiss = onPayPinDismiss,
+            onConfirm = onConfirmPay
         )
     }
 }
@@ -316,6 +333,58 @@ private fun AddItemDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+                Text("Odustani")
+            }
+        }
+    )
+}
+
+@Composable
+private fun PayPinDialog(
+    pin: String,
+    error: String?,
+    isSubmitting: Boolean,
+    onPinChanged: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("PIN potvrda") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Unesite PIN za osjetljivu akciju (naplata).")
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = onPinChanged,
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    enabled = !isSubmitting,
+                    isError = !error.isNullOrBlank()
+                )
+                if (!error.isNullOrBlank()) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = !isSubmitting
+            ) {
+                Text(if (isSubmitting) "..." else "Potvrdi")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isSubmitting
+            ) {
                 Text("Odustani")
             }
         }

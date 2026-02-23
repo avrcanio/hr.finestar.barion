@@ -71,4 +71,12 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
         checksByTableId[current.tableId] = updated
         return updated
     }
+
+    override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val closed = current.copy(status = TableStatus.FREE, items = emptyList())
+        checksByTableId[current.tableId] = closed
+        return closed
+    }
 }

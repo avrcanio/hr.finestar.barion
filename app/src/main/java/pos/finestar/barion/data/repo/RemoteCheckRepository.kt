@@ -7,6 +7,7 @@ import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
+import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
@@ -55,6 +56,19 @@ class RemoteCheckRepository @Inject constructor(
             throw IllegalStateException("Delete item failed with code ${response.code()}")
         }
         return requireNotNull(getCheck(checkId)) { "Check $checkId not found after remove item." }
+    }
+
+    override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? {
+        val payload = api.issueReceipt(
+            checkId = checkId,
+            request = IssueReceiptRequestDto(fiscalize = fiscalize)
+        )
+        val mapped = runCatching { CheckItemsMapper.toCheckSession(payload) }.getOrNull()
+        if (mapped != null) {
+            cache(mapped)
+            return mapped
+        }
+        return getCheck(checkId)
     }
 
     private fun cache(check: CheckSession) {

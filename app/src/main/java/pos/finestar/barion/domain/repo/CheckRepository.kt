@@ -9,4 +9,5 @@ interface CheckRepository {
     suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession
     suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession
     suspend fun removeItem(checkId: Long, itemId: Long): CheckSession
+    suspend fun issueReceipt(checkId: Long, fiscalize: Boolean = true): CheckSession?
 }

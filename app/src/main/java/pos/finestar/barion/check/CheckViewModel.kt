@@ -12,8 +12,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
+import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
+import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
 import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
 import pos.finestar.barion.ui.navigation.NavRoutes
@@ -24,7 +26,9 @@ class CheckViewModel @Inject constructor(
     private val getCheckByIdUseCase: GetCheckByIdUseCase,
     private val addItemToCheckUseCase: AddItemToCheckUseCase,
     private val updateCheckItemQtyUseCase: UpdateCheckItemQtyUseCase,
-    private val removeItemFromCheckUseCase: RemoveItemFromCheckUseCase
+    private val removeItemFromCheckUseCase: RemoveItemFromCheckUseCase,
+    private val issueReceiptUseCase: IssueReceiptUseCase,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     data class ProductOption(
@@ -44,6 +48,9 @@ class CheckViewModel @Inject constructor(
         val total: Double = 0.0,
         val error: String? = null,
         val message: String? = null,
+        val showPayPinDialog: Boolean = false,
+        val payPin: String = "",
+        val payPinError: String? = null,
         val productOptions: List<ProductOption> = defaultProducts()
     )
 
@@ -94,7 +101,65 @@ class CheckViewModel @Inject constructor(
     }
 
     fun onPay() {
-        _uiState.update { it.copy(message = "Naplata: placeholder") }
+        _uiState.update {
+            it.copy(
+                showPayPinDialog = true,
+                payPin = "",
+                payPinError = null,
+                message = null
+            )
+        }
+    }
+
+    fun onPayPinChanged(pin: String) {
+        val digitsOnly = pin.filter { ch -> ch.isDigit() }.take(6)
+        _uiState.update { it.copy(payPin = digitsOnly, payPinError = null) }
+    }
+
+    fun onPayPinDismiss() {
+        _uiState.update {
+            it.copy(
+                showPayPinDialog = false,
+                payPin = "",
+                payPinError = null
+            )
+        }
+    }
+
+    fun onConfirmPay() {
+        val pin = _uiState.value.payPin
+        if (pin.isBlank()) {
+            _uiState.update { it.copy(payPinError = "PIN je obavezan.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isMutating = true, payPinError = null, message = null) }
+            runCatching {
+                authRepository.verifyPin(pin)
+                issueReceiptUseCase(checkId = checkId)
+            }.onSuccess {
+                runCatching { getCheckByIdUseCase(checkId) }
+                    .onSuccess { updated -> if (updated != null) applyLoadedCheck(updated) }
+                _uiState.update {
+                    it.copy(
+                        isMutating = false,
+                        showPayPinDialog = false,
+                        payPin = "",
+                        payPinError = null,
+                        message = "Naplata uspjesna."
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        isMutating = false,
+                        payPinError = throwable.message ?: "PIN potvrda nije uspjela.",
+                        message = null
+                    )
+                }
+            }
+        }
     }
 
     fun onMessageShown() {
@@ -113,7 +178,7 @@ class CheckViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isMutating = false,
-                            message = throwable.message ?: "Greška pri izmjeni stavki."
+                            message = throwable.message ?: "Greska pri izmjeni stavki."
                         )
                     }
                 }
@@ -133,7 +198,7 @@ class CheckViewModel @Inject constructor(
                         _uiState.update {
                             it.copy(
                                 isLoading = false,
-                                error = "Check nije pronađen."
+                                error = "Check nije pronaden."
                             )
                         }
                     }
@@ -142,7 +207,7 @@ class CheckViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            error = throwable.message ?: "Greška pri učitavanju checka."
+                            error = throwable.message ?: "Greska pri ucitavanju checka."
                         )
                     }
                 }
