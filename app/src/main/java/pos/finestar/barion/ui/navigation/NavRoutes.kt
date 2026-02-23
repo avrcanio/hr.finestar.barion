@@ -1,6 +1,8 @@
 package pos.finestar.barion.ui.navigation
 
 object NavRoutes {
+    const val AUTH_GATE = "auth_gate"
+    const val PIN_LOGIN = "pin_login"
     const val FLOOR_PLAN = "floor_plan"
     const val CHECK = "check"
 

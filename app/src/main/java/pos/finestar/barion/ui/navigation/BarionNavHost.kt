@@ -9,6 +9,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import pos.finestar.barion.auth.AuthGateScreen
+import pos.finestar.barion.auth.AuthViewModel
+import pos.finestar.barion.auth.PinLoginScreen
 import pos.finestar.barion.check.CheckScreen
 import pos.finestar.barion.check.CheckViewModel
 import pos.finestar.barion.floorplan.FloorPlanScreen
@@ -20,8 +23,56 @@ fun BarionNavHost() {
 
     NavHost(
         navController = navController,
-        startDestination = NavRoutes.FLOOR_PLAN
+        startDestination = NavRoutes.AUTH_GATE
     ) {
+        composable(route = NavRoutes.AUTH_GATE) {
+            val vm: AuthViewModel = hiltViewModel()
+            val uiState = vm.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(Unit) {
+                vm.events.collect { event ->
+                    when (event) {
+                        AuthViewModel.Event.NavigateToFloor -> {
+                            navController.navigate(NavRoutes.FLOOR_PLAN) {
+                                popUpTo(NavRoutes.AUTH_GATE) { inclusive = true }
+                            }
+                        }
+                        AuthViewModel.Event.NavigateToPin -> {
+                            navController.navigate(NavRoutes.PIN_LOGIN) {
+                                popUpTo(NavRoutes.AUTH_GATE) { inclusive = true }
+                            }
+                        }
+                    }
+                }
+            }
+
+            AuthGateScreen(onBootstrap = vm::bootstrapSession)
+        }
+
+        composable(route = NavRoutes.PIN_LOGIN) {
+            val vm: AuthViewModel = hiltViewModel()
+            val uiState = vm.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(Unit) {
+                vm.events.collect { event ->
+                    when (event) {
+                        AuthViewModel.Event.NavigateToFloor -> {
+                            navController.navigate(NavRoutes.FLOOR_PLAN) {
+                                popUpTo(NavRoutes.PIN_LOGIN) { inclusive = true }
+                            }
+                        }
+                        AuthViewModel.Event.NavigateToPin -> Unit
+                    }
+                }
+            }
+
+            PinLoginScreen(
+                state = uiState.value,
+                onPinChanged = vm::onPinChanged,
+                onLoginClick = vm::loginWithPin
+            )
+        }
+
         composable(route = NavRoutes.FLOOR_PLAN) {
             val vm: FloorPlanViewModel = hiltViewModel()
             val uiState = vm.uiState.collectAsStateWithLifecycle()

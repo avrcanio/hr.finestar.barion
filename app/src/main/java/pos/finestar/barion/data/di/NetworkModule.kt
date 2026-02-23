@@ -10,6 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import pos.finestar.barion.BuildConfig
 import pos.finestar.barion.api.PosApi
+import pos.finestar.barion.data.network.AuthInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -31,8 +32,12 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(loggingInterceptor: HttpLoggingInterceptor): OkHttpClient {
+    fun provideOkHttp(
+        authInterceptor: AuthInterceptor,
+        loggingInterceptor: HttpLoggingInterceptor
+    ): OkHttpClient {
         return OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
             .build()
     }

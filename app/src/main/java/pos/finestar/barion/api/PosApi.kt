@@ -6,6 +6,11 @@ import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
+import pos.finestar.barion.api.model.MeResponseDto
+import pos.finestar.barion.api.model.PinLoginRequestDto
+import pos.finestar.barion.api.model.PinLoginResponseDto
+import pos.finestar.barion.api.model.PinVerifyRequestDto
+import pos.finestar.barion.api.model.PinVerifyResponseDto
 import pos.finestar.barion.api.model.TableStatusDto
 import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
 import retrofit2.Response
@@ -18,6 +23,19 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface PosApi {
+    @POST("/api/pos/pin/login/")
+    suspend fun pinLogin(
+        @Body request: PinLoginRequestDto
+    ): PinLoginResponseDto
+
+    @POST("/api/pos/pin/verify/")
+    suspend fun pinVerify(
+        @Body request: PinVerifyRequestDto
+    ): PinVerifyResponseDto
+
+    @GET("/api/me/")
+    suspend fun me(): MeResponseDto
+
     @GET("/api/pos/active-layout/")
     suspend fun getActiveLayout(): ActiveLayoutDto
 
