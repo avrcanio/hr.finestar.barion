@@ -25,17 +25,42 @@ class SessionStore @Inject constructor(
         val TOKEN = stringPreferencesKey("token")
         val USER_ID = longPreferencesKey("user_id")
         val USERNAME = stringPreferencesKey("username")
+        val FIRST_NAME = stringPreferencesKey("first_name")
+        val LAST_NAME = stringPreferencesKey("last_name")
     }
 
     val tokenFlow: Flow<String?> = context.sessionDataStore.data.map { it[Keys.TOKEN] }
+    val displayNameFlow: Flow<String?> = context.sessionDataStore.data.map { prefs ->
+        val firstName = prefs[Keys.FIRST_NAME].orEmpty().trim()
+        val lastName = prefs[Keys.LAST_NAME].orEmpty().trim()
+        val fullName = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ")
+        if (fullName.isNotBlank()) fullName else prefs[Keys.USERNAME]
+    }
 
     suspend fun currentToken(): String? = tokenFlow.first()
+    suspend fun currentDisplayName(): String? = displayNameFlow.first()
 
-    suspend fun saveSession(token: String, userId: Long, username: String) {
+    suspend fun saveSession(
+        token: String,
+        userId: Long,
+        username: String,
+        firstName: String? = null,
+        lastName: String? = null
+    ) {
         context.sessionDataStore.edit { prefs ->
             prefs[Keys.TOKEN] = token
             prefs[Keys.USER_ID] = userId
             prefs[Keys.USERNAME] = username
+            if (firstName.isNullOrBlank()) {
+                prefs.remove(Keys.FIRST_NAME)
+            } else {
+                prefs[Keys.FIRST_NAME] = firstName
+            }
+            if (lastName.isNullOrBlank()) {
+                prefs.remove(Keys.LAST_NAME)
+            } else {
+                prefs[Keys.LAST_NAME] = lastName
+            }
         }
     }
 
@@ -44,6 +69,8 @@ class SessionStore @Inject constructor(
             prefs.remove(Keys.TOKEN)
             prefs.remove(Keys.USER_ID)
             prefs.remove(Keys.USERNAME)
+            prefs.remove(Keys.FIRST_NAME)
+            prefs.remove(Keys.LAST_NAME)
         }
     }
 }

@@ -24,7 +24,14 @@ class RemoteAuthRepository @Inject constructor(
         if (token.isNullOrBlank()) return false
 
         return runCatching {
-            api.me()
+            val me = api.me()
+            sessionStore.saveSession(
+                token = token,
+                userId = me.id,
+                username = me.username,
+                firstName = me.firstName,
+                lastName = me.lastName
+            )
         }.onFailure {
             sessionStore.clear()
         }.isSuccess
@@ -46,7 +53,14 @@ class RemoteAuthRepository @Inject constructor(
             )
 
             // Auth bootstrap verification after login.
-            api.me()
+            val me = api.me()
+            sessionStore.saveSession(
+                token = login.token,
+                userId = me.id,
+                username = me.username,
+                firstName = me.firstName,
+                lastName = me.lastName
+            )
         } catch (httpException: HttpException) {
             val detail = parseErrorDetail(httpException.response()?.errorBody())
             throw IllegalStateException(detail ?: "PIN login failed.")
@@ -61,6 +75,8 @@ class RemoteAuthRepository @Inject constructor(
             throw IllegalStateException(detail ?: "PIN verify failed.")
         }
     }
+
+    override suspend fun currentUserDisplayName(): String? = sessionStore.currentDisplayName()
 
     override suspend fun logout() {
         sessionStore.clear()

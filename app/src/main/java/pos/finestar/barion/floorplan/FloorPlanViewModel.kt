@@ -14,20 +14,24 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pos.finestar.barion.domain.model.FloorTable
 import pos.finestar.barion.domain.model.TableStatus
+import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.usecase.CreateCheckForTableUseCase
 import pos.finestar.barion.domain.usecase.GetFloorTablesUseCase
 import pos.finestar.barion.domain.usecase.GetOpenCheckForTableUseCase
+import retrofit2.HttpException
 
 @HiltViewModel
 class FloorPlanViewModel @Inject constructor(
     private val getFloorTables: GetFloorTablesUseCase,
     private val createCheckForTable: CreateCheckForTableUseCase,
-    private val getOpenCheckForTable: GetOpenCheckForTableUseCase
+    private val getOpenCheckForTable: GetOpenCheckForTableUseCase,
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
     data class UiState(
         val isLoading: Boolean = true,
         val tables: List<FloorTable> = emptyList(),
+        val userDisplayName: String? = null,
         val error: String? = null
     )
 
@@ -42,6 +46,7 @@ class FloorPlanViewModel @Inject constructor(
     val events: SharedFlow<Event> = _events.asSharedFlow()
 
     init {
+        loadUserProfile()
         loadTables(forceLoading = true)
     }
 
@@ -52,18 +57,32 @@ class FloorPlanViewModel @Inject constructor(
     fun onTableClick(tableId: Long) {
         viewModelScope.launch {
             val table = _uiState.value.tables.firstOrNull { it.id == tableId }
-            val check = if (table?.status == TableStatus.OPEN) {
-                getOpenCheckForTable(tableId)
-            } else {
-                createCheckForTable(tableId)
-            }
-
-            _events.emit(
-                Event.OpenCheck(
-                    checkId = check.checkId,
-                    tableName = table?.name ?: check.tableName
+            runCatching {
+                if (table?.status == TableStatus.OPEN) {
+                    getOpenCheckForTable(tableId)
+                } else {
+                    createCheckForTable(tableId)
+                }
+            }.onSuccess { check ->
+                _events.emit(
+                    Event.OpenCheck(
+                        checkId = check.checkId,
+                        tableName = table?.name ?: check.tableName
+                    )
                 )
-            )
+            }.onFailure { throwable ->
+                val message = when {
+                    throwable is HttpException && throwable.code() == 400 ->
+                        "Server je odbio zahtjev (HTTP 400). Provjeri stanje stola i pokusaj ponovo."
+
+                    throwable is HttpException ->
+                        "Mrezna greska (HTTP ${throwable.code()})."
+
+                    else ->
+                        throwable.message ?: "Ne mogu otvoriti sto."
+                }
+                _uiState.update { it.copy(error = message) }
+            }
         }
     }
 
@@ -93,6 +112,13 @@ class FloorPlanViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+    }
+
+    private fun loadUserProfile() {
+        viewModelScope.launch {
+            val displayName = authRepository.currentUserDisplayName()
+            _uiState.update { it.copy(userDisplayName = displayName) }
         }
     }
 }

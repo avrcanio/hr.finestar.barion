@@ -9,3 +9,6 @@
 .cxx/
 *.iml
 /app/build/
+/.gradle-user-home/
+/logcat/
+*.logcat

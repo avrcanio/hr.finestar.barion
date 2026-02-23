@@ -73,6 +73,13 @@ fun FloorPlanScreen(
                         style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                     )
+                    state.userDisplayName?.takeIf { it.isNotBlank() }?.let { displayName ->
+                        Text(
+                            text = "Prijavljen: $displayName",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                     FloorCanvas(
                         tables = state.tables,
                         modifier = Modifier

@@ -61,12 +61,12 @@ interface PosApi {
         @Query("layout_id") layoutId: Long
     ): List<TableStatusDto>
 
-    @POST("/api/pos/checks")
+    @POST("/api/pos/checks/")
     suspend fun createCheck(
         @Body request: CreateCheckRequestDto
     ): CreateCheckResponseDto
 
-    @GET("/api/pos/checks")
+    @GET("/api/pos/checks/")
     suspend fun getOpenCheckByTable(
         @Query("table_id") tableId: Long
     ): CheckDto

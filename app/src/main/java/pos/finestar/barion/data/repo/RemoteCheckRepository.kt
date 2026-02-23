@@ -1,10 +1,13 @@
 package pos.finestar.barion.data.repo
 
+import com.google.gson.Gson
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.ResponseBody
 import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.AddCheckItemRequestDto
+import pos.finestar.barion.api.model.ApiErrorDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
@@ -13,21 +16,31 @@ import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
+import retrofit2.HttpException
 
 @Singleton
 class RemoteCheckRepository @Inject constructor(
-    private val api: PosApi
+    private val api: PosApi,
+    private val gson: Gson
 ) : CheckRepository {
 
     private val checkCache = ConcurrentHashMap<Long, CheckSession>()
 
     override suspend fun createCheck(tableId: Long): CheckSession {
-        val response = api.createCheck(CreateCheckRequestDto(tableId))
+        val response = try {
+            api.createCheck(CreateCheckRequestDto(tableId = tableId))
+        } catch (httpException: HttpException) {
+            throw mapHttpException(httpException, defaultMessage = "Kreiranje racuna nije uspjelo.")
+        }
         return response.check.toDomain().also { cache(it) }
     }
 
     override suspend fun getOpenCheckByTable(tableId: Long): CheckSession {
-        val check = api.getOpenCheckByTable(tableId).toDomain()
+        val check = try {
+            api.getOpenCheckByTable(tableId).toDomain()
+        } catch (httpException: HttpException) {
+            throw mapHttpException(httpException, defaultMessage = "Otvaranje postojeceg racuna nije uspjelo.")
+        }
         cache(check)
         return check
     }
@@ -73,6 +86,25 @@ class RemoteCheckRepository @Inject constructor(
 
     private fun cache(check: CheckSession) {
         checkCache[check.checkId] = check
+    }
+
+    private fun mapHttpException(httpException: HttpException, defaultMessage: String): IllegalStateException {
+        val detail = parseErrorDetail(httpException.response()?.errorBody())
+        val message = detail ?: when (val code = httpException.code()) {
+            in 400..499 -> "Zahtjev je odbijen (HTTP $code)."
+            in 500..599 -> "Serverska greska (HTTP $code)."
+            else -> defaultMessage
+        }
+        return IllegalStateException(message)
+    }
+
+    private fun parseErrorDetail(errorBody: ResponseBody?): String? {
+        val raw = errorBody?.string().orEmpty()
+        if (raw.isBlank()) return null
+
+        return runCatching {
+            gson.fromJson(raw, ApiErrorDto::class.java).detail
+        }.getOrNull()
     }
 
     private fun CheckDto.toDomain(): CheckSession {

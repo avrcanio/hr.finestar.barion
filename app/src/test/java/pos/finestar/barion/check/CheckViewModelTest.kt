@@ -41,6 +41,7 @@ class CheckViewModelTest {
         override suspend fun bootstrapSession(): Boolean = true
         override suspend fun loginWithPin(pin: String, username: String?, deviceId: String?) = Unit
         override suspend fun verifyPin(pin: String) = Unit
+        override suspend fun currentUserDisplayName(): String? = "Test User"
         override suspend fun logout() = Unit
     }
 
