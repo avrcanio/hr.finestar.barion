@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -174,6 +176,7 @@ fun AddItemScreen(
                                 )
                                 ProductsGrid(
                                     products = state.products,
+                                    cartQtyByProductId = state.cart.associate { it.productId to it.qty },
                                     onProductTapped = onProductTapped,
                                     modifier = Modifier
                                         .weight(0.66f)
@@ -192,6 +195,7 @@ fun AddItemScreen(
                                 )
                                 ProductsGrid(
                                     products = state.products,
+                                    cartQtyByProductId = state.cart.associate { it.productId to it.qty },
                                     onProductTapped = onProductTapped,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -299,6 +303,7 @@ private fun CategoryItem(
 @Composable
 private fun ProductsGrid(
     products: List<AddItemViewModel.ProductUi>,
+    cartQtyByProductId: Map<Long, Int>,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -309,10 +314,14 @@ private fun ProductsGrid(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(products) { product ->
+            val orderedQty = cartQtyByProductId[product.id] ?: 0
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onProductTapped(product) }
+                    .clickable { onProductTapped(product) },
+                colors = CardDefaults.cardColors(
+                    containerColor = if (orderedQty > 0) Color(0xFFE8F7E8) else MaterialTheme.colorScheme.surface
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -321,11 +330,32 @@ private fun ProductsGrid(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AsyncImage(
-                        model = product.imageUrl,
-                        contentDescription = product.name,
+                    Box(
                         modifier = Modifier.size(width = 92.dp, height = 120.dp)
-                    )
+                    ) {
+                        AsyncImage(
+                            model = product.imageUrl,
+                            contentDescription = product.name,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (orderedQty > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .background(
+                                        color = Color(0xFF2E7D32),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = orderedQty.toString(),
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = product.name,
                         maxLines = 2,
@@ -361,20 +391,33 @@ private fun QtyDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TextButton(onClick = { onQtyChanged(-1) }, enabled = !isSubmitting) { Text("-") }
-                    Text(text = "$qty")
-                    TextButton(onClick = { onQtyChanged(1) }, enabled = !isSubmitting) { Text("+") }
+                    TextButton(onClick = { onQtyChanged(-1) }, enabled = !isSubmitting) {
+                        Text(
+                            text = "-",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                    }
+                    Text(
+                        text = "$qty",
+                        style = MaterialTheme.typography.headlineSmall
+                    )
+                    TextButton(onClick = { onQtyChanged(1) }, enabled = !isSubmitting) {
+                        Text(
+                            text = "+",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
             Button(onClick = onAdd, enabled = !isSubmitting) {
-                Text("Add")
+                Text("Add", style = MaterialTheme.typography.titleMedium)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isSubmitting) {
-                Text("Cancel")
+                Text("Cancel", style = MaterialTheme.typography.titleMedium)
             }
         }
     )

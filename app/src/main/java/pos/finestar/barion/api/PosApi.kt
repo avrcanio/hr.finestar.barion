@@ -63,7 +63,8 @@ interface PosApi {
     @GET("/api/pos/products/search/")
     suspend fun searchProducts(
         @Query("q") query: String? = null,
-        @Query("drink_category_id") drinkCategoryId: Long? = null
+        @Query("drink_category_id") drinkCategoryId: Long? = null,
+        @Query("sort") sort: String? = "popular"
     ): JsonElement
 
     @GET("/api/artikli/")

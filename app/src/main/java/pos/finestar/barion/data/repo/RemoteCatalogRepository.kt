@@ -95,7 +95,8 @@ class RemoteCatalogRepository @Inject constructor(
         return runCatching {
             val payload = api.searchProducts(
                 query = normalizedQuery.takeIf { it.isNotBlank() },
-                drinkCategoryId = drinkCategoryId
+                drinkCategoryId = drinkCategoryId,
+                sort = "popular"
             )
             val payloadObject = payload.asJsonObjectOrNull()
             val rawList = when {
@@ -132,7 +133,7 @@ class RemoteCatalogRepository @Inject constructor(
                     isStockItem = node.getBoolean("is_stock_item") ?: true,
                     price = price
                 )
-            }.sortedBy { it.name }
+            }
         }.onSuccess { fresh ->
             productsCache[key] = CacheEntry(
                 value = fresh,
