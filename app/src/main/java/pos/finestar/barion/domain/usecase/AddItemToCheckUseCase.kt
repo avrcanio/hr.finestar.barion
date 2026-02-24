@@ -7,7 +7,19 @@ import pos.finestar.barion.domain.repo.CheckRepository
 class AddItemToCheckUseCase @Inject constructor(
     private val repository: CheckRepository
 ) {
-    suspend operator fun invoke(checkId: Long, productId: Long, qty: Int): CheckSession {
-        return repository.addItem(checkId = checkId, productId = productId, qty = qty)
+    suspend operator fun invoke(
+        checkId: Long,
+        productId: Long,
+        qty: Int,
+        unitPrice: Double,
+        productName: String? = null
+    ): CheckSession {
+        return repository.addItem(
+            checkId = checkId,
+            productId = productId,
+            qty = qty,
+            unitPrice = unitPrice,
+            productName = productName
+        )
     }
 }

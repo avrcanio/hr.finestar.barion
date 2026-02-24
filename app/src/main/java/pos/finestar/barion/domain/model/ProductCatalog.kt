@@ -16,5 +16,13 @@ data class DrinkCategoryDisplay(
 data class CatalogProduct(
     val id: Long,
     val name: String,
+    val code: String? = null,
+    val image: String? = null,
+    val image46x75: String? = null,
+    val image125x200: String? = null,
+    val drinkCategoryId: Long? = null,
+    val drinkCategoryName: String? = null,
+    val isSellable: Boolean = true,
+    val isStockItem: Boolean = true,
     val price: Double = 0.0
 )

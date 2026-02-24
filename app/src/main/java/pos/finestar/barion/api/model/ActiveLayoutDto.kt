@@ -3,6 +3,10 @@ package pos.finestar.barion.api.model
 import com.google.gson.annotations.SerializedName
 
 data class ActiveLayoutDto(
+    @SerializedName("resolved_by")
+    val resolvedBy: String? = null,
+    @SerializedName("allowed_layouts")
+    val allowedLayouts: List<AllowedLayoutDto> = emptyList(),
     @SerializedName("layout")
     val layout: LayoutDto,
     @SerializedName("zones")

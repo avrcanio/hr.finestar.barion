@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -16,12 +18,14 @@ import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoryDisplayUseCase
 import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
-import pos.finestar.barion.domain.usecase.SearchProductsUseCase
+import pos.finestar.barion.domain.usecase.SendToBarUseCase
+import pos.finestar.barion.domain.usecase.StornoCheckItemUseCase
 import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
+import pos.finestar.barion.domain.usecase.GratisCheckItemUseCase
+import pos.finestar.barion.domain.usecase.OtpisCheckItemUseCase
+import pos.finestar.barion.domain.usecase.CloseCheckUseCase
 import pos.finestar.barion.ui.navigation.NavRoutes
 
 @HiltViewModel
@@ -31,22 +35,14 @@ class CheckViewModel @Inject constructor(
     private val addItemToCheckUseCase: AddItemToCheckUseCase,
     private val updateCheckItemQtyUseCase: UpdateCheckItemQtyUseCase,
     private val removeItemFromCheckUseCase: RemoveItemFromCheckUseCase,
+    private val stornoCheckItemUseCase: StornoCheckItemUseCase,
+    private val gratisCheckItemUseCase: GratisCheckItemUseCase,
+    private val otpisCheckItemUseCase: OtpisCheckItemUseCase,
+    private val closeCheckUseCase: CloseCheckUseCase,
+    private val sendToBarUseCase: SendToBarUseCase,
     private val issueReceiptUseCase: IssueReceiptUseCase,
-    private val authRepository: AuthRepository,
-    private val getDrinkCategoriesUseCase: GetDrinkCategoriesUseCase,
-    private val getDrinkCategoryDisplayUseCase: GetDrinkCategoryDisplayUseCase,
-    private val searchProductsUseCase: SearchProductsUseCase
+    private val authRepository: AuthRepository
 ) : ViewModel() {
-
-    data class ProductOption(
-        val id: Long,
-        val label: String
-    )
-
-    data class CategoryOption(
-        val id: Long,
-        val label: String
-    )
 
     data class UiState(
         val isLoading: Boolean = true,
@@ -55,26 +51,28 @@ class CheckViewModel @Inject constructor(
         val tableName: String = "",
         val status: String = "OPEN",
         val items: List<CheckItem> = emptyList(),
+        val hasUnsentItems: Boolean = false,
         val subtotal: Double = 0.0,
         val tax: Double = 0.0,
         val total: Double = 0.0,
         val error: String? = null,
         val message: String? = null,
+        val showItemActionDialog: Boolean = false,
+        val selectedActionItem: CheckItem? = null,
+        val actionReason: String = "",
+        val actionQty: String = "",
+        val actionMaxQty: Int = 0,
         val showPayPinDialog: Boolean = false,
         val payPin: String = "",
-        val payPinError: String? = null,
-        val showAddDialog: Boolean = false,
-        val isCatalogLoading: Boolean = false,
-        val catalogError: String? = null,
-        val addItemQuery: String = "",
-        val categoryOptions: List<CategoryOption> = emptyList(),
-        val selectedCategoryId: Long? = null,
-        val productOptions: List<ProductOption> = emptyList()
+        val payPinError: String? = null
     )
+
+    sealed interface Event {
+        data class OpenAddItems(val checkId: Long, val tableName: String) : Event
+    }
 
     private val checkId: Long = savedStateHandle[NavRoutes.ARG_CHECK_ID] ?: 0L
     private val tableName: String = savedStateHandle[NavRoutes.ARG_TABLE_NAME] ?: "Unknown"
-    private var searchJob: Job? = null
 
     private val _uiState = MutableStateFlow(
         UiState(
@@ -84,38 +82,32 @@ class CheckViewModel @Inject constructor(
     )
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    private val _events = MutableSharedFlow<Event>()
+    val events: SharedFlow<Event> = _events.asSharedFlow()
+
     init {
         loadCheck()
     }
 
-    fun onOpenAddDialog() {
-        _uiState.update {
-            it.copy(
-                showAddDialog = true,
-                addItemQuery = "",
-                catalogError = null
+    fun onOpenAddItems() {
+        viewModelScope.launch {
+            _events.emit(
+                Event.OpenAddItems(
+                    checkId = _uiState.value.checkId,
+                    tableName = _uiState.value.tableName
+                )
             )
         }
-        loadCatalogAndProducts()
     }
 
-    fun onDismissAddDialog() {
-        _uiState.update { it.copy(showAddDialog = false) }
-    }
-
-    fun onAddItemQueryChanged(query: String) {
-        _uiState.update { it.copy(addItemQuery = query) }
-        searchProducts()
-    }
-
-    fun onCategorySelected(categoryId: Long?) {
-        _uiState.update { it.copy(selectedCategoryId = categoryId) }
-        searchProducts()
-    }
-
-    fun onAddItem(productId: Long, qty: Int) {
+    fun onAddItem(productId: Long, qty: Int, unitPrice: Double) {
         mutateCheck {
-            addItemToCheckUseCase(checkId = checkId, productId = productId, qty = qty)
+            addItemToCheckUseCase(
+                checkId = checkId,
+                productId = productId,
+                qty = qty,
+                unitPrice = unitPrice
+            )
         }
     }
 
@@ -144,6 +136,141 @@ class CheckViewModel @Inject constructor(
         }
     }
 
+    fun onItemLongPress(item: CheckItem) {
+        if (item.itemId == null) return
+        if (!item.lineType.equals("NORMAL", ignoreCase = true)) {
+            _uiState.update { it.copy(message = "Akcija je dozvoljena samo za normalne stavke.") }
+            return
+        }
+        val availableQty = calculateAvailableActionQty(item)
+        if (availableQty <= 0) {
+            _uiState.update { it.copy(message = "Nema slobodne količine za storno/gratis/otpis.") }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                showItemActionDialog = true,
+                selectedActionItem = item,
+                actionReason = "",
+                actionQty = availableQty.toString(),
+                actionMaxQty = availableQty
+            )
+        }
+    }
+
+    fun onItemActionReasonChanged(reason: String) {
+        _uiState.update { it.copy(actionReason = reason) }
+    }
+
+    fun onItemActionQtyChanged(qty: String) {
+        val sanitized = qty.filter { it.isDigit() }.take(3)
+        _uiState.update { it.copy(actionQty = sanitized) }
+    }
+
+    fun onDismissItemActionDialog() {
+        _uiState.update {
+            it.copy(
+                showItemActionDialog = false,
+                selectedActionItem = null,
+                actionReason = "",
+                actionQty = "",
+                actionMaxQty = 0
+            )
+        }
+    }
+
+    fun onConfirmStorno() {
+        val item = _uiState.value.selectedActionItem ?: return
+        val itemId = item.itemId ?: return
+        val reason = _uiState.value.actionReason
+        val maxQty = _uiState.value.actionMaxQty
+        val qty = _uiState.value.actionQty.toIntOrNull()
+        if (qty == null || qty < 1 || qty > maxQty) {
+            _uiState.update { it.copy(message = "Količina mora biti između 1 i $maxQty.") }
+            return
+        }
+        mutateCheck(
+            onSuccessMessage = "Storno je evidentiran.",
+            action = {
+                stornoCheckItemUseCase(
+                    checkId = checkId,
+                    itemId = itemId,
+                    reason = reason,
+                    qty = qty
+                )
+            }
+        )
+    }
+
+    fun onConfirmGratis() {
+        val item = _uiState.value.selectedActionItem ?: return
+        val itemId = item.itemId ?: return
+        val reason = _uiState.value.actionReason
+        val maxQty = _uiState.value.actionMaxQty
+        val qty = _uiState.value.actionQty.toIntOrNull()
+        if (qty == null || qty < 1 || qty > maxQty) {
+            _uiState.update { it.copy(message = "Količina mora biti između 1 i $maxQty.") }
+            return
+        }
+        mutateCheck(
+            onSuccessMessage = "Gratis je evidentiran.",
+            action = {
+                gratisCheckItemUseCase(
+                    checkId = checkId,
+                    itemId = itemId,
+                    reason = reason,
+                    qty = qty
+                )
+            }
+        )
+    }
+
+    fun onConfirmOtpis() {
+        val item = _uiState.value.selectedActionItem ?: return
+        val itemId = item.itemId ?: return
+        val reason = _uiState.value.actionReason
+        val maxQty = _uiState.value.actionMaxQty
+        val qty = _uiState.value.actionQty.toIntOrNull()
+        if (qty == null || qty < 1 || qty > maxQty) {
+            _uiState.update { it.copy(message = "Količina mora biti između 1 i $maxQty.") }
+            return
+        }
+        mutateCheck(
+            onSuccessMessage = "Otpis je evidentiran.",
+            action = {
+                otpisCheckItemUseCase(
+                    checkId = checkId,
+                    itemId = itemId,
+                    reason = reason,
+                    qty = qty
+                )
+            }
+        )
+    }
+
+    fun onSendToBar() {
+        if (!_uiState.value.hasUnsentItems) {
+            _uiState.update { it.copy(message = "Nema novih stavki za slanje na sank.") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update { it.copy(isMutating = true, message = null) }
+            runCatching { sendToBarUseCase(checkId = checkId) }
+                .onSuccess { updated ->
+                    _uiState.update { it.copy(isMutating = false, message = "Runda je poslana na sank.") }
+                    applyLoadedCheck(updated)
+                }
+                .onFailure { throwable ->
+                    _uiState.update {
+                        it.copy(
+                            isMutating = false,
+                            message = throwable.message ?: "Slanje na sank nije uspjelo."
+                        )
+                    }
+                }
+        }
+    }
+
     fun onPay() {
         _uiState.update {
             it.copy(
@@ -152,6 +279,31 @@ class CheckViewModel @Inject constructor(
                 payPinError = null,
                 message = null
             )
+        }
+    }
+
+    fun onFree() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isMutating = true, message = null) }
+            runCatching {
+                closeCheckUseCase(checkId = checkId)
+            }.onSuccess {
+                runCatching { getCheckByIdUseCase(checkId) }
+                    .onSuccess { updated -> if (updated != null) applyLoadedCheck(updated) }
+                _uiState.update {
+                    it.copy(
+                        isMutating = false,
+                        message = "Check je zatvoren kao FREE."
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        isMutating = false,
+                        message = throwable.message ?: "Free zatvaranje nije uspjelo."
+                    )
+                }
+            }
         }
     }
 
@@ -210,96 +362,29 @@ class CheckViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
-    private fun loadCatalogAndProducts() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isCatalogLoading = true, catalogError = null) }
-            runCatching {
-                val categories = getDrinkCategoriesUseCase()
-                val rootId = categories.firstOrNull { it.parentId == null }?.id
-                val displayCategories = rootId?.let {
-                    runCatching { getDrinkCategoryDisplayUseCase(it) }
-                        .getOrNull()
-                        ?.categories
-                }.orEmpty()
-
-                val preferredCategories = when {
-                    displayCategories.isNotEmpty() -> displayCategories
-                    rootId != null -> categories.filter { it.parentId == rootId }
-                    else -> categories
-                }
-
-                val selectedCategoryId = preferredCategories.firstOrNull()?.id
-                val products = searchProductsUseCase(query = null, drinkCategoryId = selectedCategoryId)
-
-                Triple(
-                    preferredCategories.map { CategoryOption(id = it.id, label = it.name) },
-                    selectedCategoryId,
-                    products.map { ProductOption(id = it.id, label = "${it.name} (${"%.2f".format(it.price)} EUR)") }
-                )
-            }.onSuccess { (categoryOptions, selectedCategoryId, productOptions) ->
-                _uiState.update {
-                    it.copy(
-                        isCatalogLoading = false,
-                        categoryOptions = categoryOptions,
-                        selectedCategoryId = selectedCategoryId,
-                        productOptions = productOptions,
-                        catalogError = null
-                    )
-                }
-            }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(
-                        isCatalogLoading = false,
-                        categoryOptions = emptyList(),
-                        selectedCategoryId = null,
-                        productOptions = emptyList(),
-                        catalogError = throwable.message ?: "Ne mogu ucitati kategorije/artikle."
-                    )
-                }
-            }
-        }
+    fun refresh() {
+        loadCheck()
     }
 
-    private fun searchProducts() {
-        searchJob?.cancel()
-        searchJob = viewModelScope.launch {
-            val state = _uiState.value
-            _uiState.update { it.copy(isCatalogLoading = true, catalogError = null) }
-            runCatching {
-                searchProductsUseCase(
-                    query = state.addItemQuery,
-                    drinkCategoryId = state.selectedCategoryId
-                )
-            }.onSuccess { products ->
-                _uiState.update {
-                    it.copy(
-                        isCatalogLoading = false,
-                        productOptions = products.map { p ->
-                            ProductOption(
-                                id = p.id,
-                                label = "${p.name} (${"%.2f".format(p.price)} EUR)"
-                            )
-                        }
-                    )
-                }
-            }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(
-                        isCatalogLoading = false,
-                        productOptions = emptyList(),
-                        catalogError = throwable.message ?: "Ne mogu ucitati artikle."
-                    )
-                }
-            }
-        }
-    }
-
-    private fun mutateCheck(action: suspend () -> CheckSession) {
+    private fun mutateCheck(
+        onSuccessMessage: String? = null,
+        action: suspend () -> CheckSession
+    ) {
         viewModelScope.launch {
             _uiState.update { it.copy(isMutating = true) }
             runCatching { action() }
                 .onSuccess { updated ->
-                    _uiState.update { it.copy(isMutating = false) }
+                    _uiState.update {
+                        it.copy(
+                            isMutating = false,
+                            showItemActionDialog = false,
+                            selectedActionItem = null,
+                            actionReason = "",
+                            actionQty = "",
+                            actionMaxQty = 0,
+                            message = onSuccessMessage
+                        )
+                    }
                     applyLoadedCheck(updated)
                 }
                 .onFailure { throwable ->
@@ -347,11 +432,33 @@ class CheckViewModel @Inject constructor(
             it.copy(
                 status = check.status.name,
                 items = check.items,
+                hasUnsentItems = check.items.any { item -> !item.sentToBar },
                 subtotal = check.subtotal,
                 tax = check.tax,
                 total = check.total,
                 error = null
             )
         }
+    }
+
+    private fun calculateAvailableActionQty(item: CheckItem): Int {
+        val itemId = item.itemId ?: return 0
+        val sourceQty = kotlin.math.abs(item.qty)
+        val consumedByActions = _uiState.value.items
+            .asSequence()
+            .filter {
+                it.lineType.equals("STORNO", ignoreCase = true) ||
+                    it.lineType.equals("OTPIS", ignoreCase = true)
+            }
+            .filter { actionTargetsItem(it.note, itemId) }
+            .sumOf { kotlin.math.abs(it.qty) }
+        return (sourceQty - consumedByActions).coerceAtLeast(0)
+    }
+
+    private fun actionTargetsItem(note: String?, itemId: Long): Boolean {
+        if (note.isNullOrBlank()) return false
+        val pattern = Regex("""\[(?:storno|otpis)_of:(\d+)]""", RegexOption.IGNORE_CASE)
+        val targetId = pattern.find(note)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        return targetId == itemId
     }
 }

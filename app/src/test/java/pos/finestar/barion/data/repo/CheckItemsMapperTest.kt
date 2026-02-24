@@ -59,4 +59,30 @@ class CheckItemsMapperTest {
         assertEquals(3, mapped.items.first().qty)
         assertEquals(12.6, mapped.total, 0.0001)
     }
+
+    @Test
+    fun `maps backend totals net vat total_amount format`() {
+        val json = JsonParser.parseString(
+            """
+            {
+              "check_id": 1,
+              "status": "OPEN",
+              "items": [],
+              "totals": {
+                "items_count": 0,
+                "net_amount": 0.0,
+                "vat_amount": 0.0,
+                "total_amount": 0.0
+              }
+            }
+            """.trimIndent()
+        ).asJsonObject
+
+        val mapped = CheckItemsMapper.toCheckSession(json)
+
+        assertEquals(1L, mapped.checkId)
+        assertEquals(0.0, mapped.subtotal, 0.0001)
+        assertEquals(0.0, mapped.tax, 0.0001)
+        assertEquals(0.0, mapped.total, 0.0001)
+    }
 }

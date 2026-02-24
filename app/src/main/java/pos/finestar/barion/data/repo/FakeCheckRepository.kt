@@ -38,15 +38,21 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
         return checksByTableId.values.firstOrNull { it.checkId == checkId }
     }
 
-    override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession {
+    override suspend fun addItem(
+        checkId: Long,
+        productId: Long,
+        qty: Int,
+        unitPrice: Double,
+        productName: String?
+    ): CheckSession {
         val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
             ?: throw IllegalArgumentException("Check $checkId not found")
         val added = CheckItem(
             itemId = itemIdGenerator.getAndIncrement(),
             productId = productId,
-            name = "Product $productId",
+            name = productName ?: "Product $productId",
             qty = qty,
-            price = 2.0
+            price = unitPrice
         )
         val updated = current.copy(items = current.items + added)
         checksByTableId[current.tableId] = updated
@@ -70,6 +76,93 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
         val updated = current.copy(items = current.items.filterNot { it.itemId == itemId })
         checksByTableId[current.tableId] = updated
         return updated
+    }
+
+    override suspend fun stornoItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val target = current.items.firstOrNull { it.itemId == itemId }
+            ?: throw IllegalArgumentException("Item $itemId not found")
+        val requestedQty = (qty ?: kotlin.math.abs(target.qty)).coerceAtLeast(1).coerceAtMost(kotlin.math.abs(target.qty))
+        val storno = target.copy(
+            itemId = itemIdGenerator.getAndIncrement(),
+            qty = -requestedQty,
+            lineType = "STORNO",
+            note = reason,
+            sentToBar = true,
+            sentAt = "n/a",
+            roundNumber = null
+        )
+        val updated = current.copy(items = current.items + storno)
+        checksByTableId[current.tableId] = updated
+        return updated
+    }
+
+    override suspend fun gratisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val target = current.items.firstOrNull { it.itemId == itemId }
+            ?: throw IllegalArgumentException("Item $itemId not found")
+        val requestedQty = (qty ?: kotlin.math.abs(target.qty)).coerceAtLeast(1).coerceAtMost(kotlin.math.abs(target.qty))
+        val gratisLine = target.copy(
+            itemId = itemIdGenerator.getAndIncrement(),
+            qty = requestedQty,
+            price = 0.0,
+            lineType = "GRATIS",
+            note = reason,
+            sentToBar = true,
+            sentAt = "n/a",
+            roundNumber = null
+        )
+        val updated = current.copy(items = current.items + gratisLine)
+        checksByTableId[current.tableId] = updated
+        return updated
+    }
+
+    override suspend fun otpisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val target = current.items.firstOrNull { it.itemId == itemId }
+            ?: throw IllegalArgumentException("Item $itemId not found")
+        val requestedQty = (qty ?: kotlin.math.abs(target.qty)).coerceAtLeast(1).coerceAtMost(kotlin.math.abs(target.qty))
+        val otpisLine = target.copy(
+            itemId = itemIdGenerator.getAndIncrement(),
+            qty = requestedQty,
+            price = 0.0,
+            lineType = "OTPIS",
+            note = reason,
+            sentToBar = true,
+            sentAt = "n/a",
+            roundNumber = null
+        )
+        val updated = current.copy(items = current.items + otpisLine)
+        checksByTableId[current.tableId] = updated
+        return updated
+    }
+
+    override suspend fun sendToBar(checkId: Long): CheckSession {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+
+        val nextRound = (current.items.mapNotNull { it.roundNumber }.maxOrNull() ?: 0) + 1
+        val updatedItems = current.items.map { item ->
+            if (item.sentToBar) item else item.copy(
+                sentToBar = true,
+                roundNumber = nextRound,
+                sentAt = "now"
+            )
+        }
+        val updated = current.copy(items = updatedItems)
+        checksByTableId[current.tableId] = updated
+        return updated
+    }
+
+    override suspend fun closeCheck(checkId: Long): CheckSession? {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val closed = current.copy(status = TableStatus.FREE, items = emptyList())
+        checksByTableId[current.tableId] = closed
+        return closed
     }
 
     override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? {

@@ -6,7 +6,9 @@ import javax.inject.Singleton
 import okhttp3.ResponseBody
 import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.ApiErrorDto
+import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorTable
+import pos.finestar.barion.domain.model.FloorPlanData
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.FloorPlanRepository
 import retrofit2.HttpException
@@ -17,13 +19,16 @@ class RemoteFloorPlanRepository @Inject constructor(
     private val gson: Gson
 ) : FloorPlanRepository {
 
-    override suspend fun getTables(): List<FloorTable> {
+    override suspend fun getTables(layoutId: Long?): FloorPlanData {
         return try {
-            val activeLayout = api.getActiveLayout()
+            val activeLayout = api.getActiveLayout(
+                layoutId = layoutId,
+                includeAllowed = 1
+            )
             val tableStatuses = api.getTableStatuses(activeLayout.layout.id)
                 .associateBy { it.tableId }
 
-            activeLayout.tables.map { table ->
+            val tables = activeLayout.tables.map { table ->
                 val statusDto = tableStatuses[table.tableId]
                 FloorTable(
                     id = table.tableId,
@@ -37,12 +42,35 @@ class RemoteFloorPlanRepository @Inject constructor(
                     itemCount = statusDto?.itemCount
                 )
             }
+            FloorPlanData(
+                layoutId = activeLayout.layout.id,
+                layoutName = activeLayout.layout.name,
+                resolvedBy = activeLayout.resolvedBy,
+                allowedLayouts = activeLayout.allowedLayouts.map {
+                    AllowedLayout(
+                        id = it.id,
+                        name = it.name,
+                        isDefault = it.isDefault
+                    )
+                },
+                tables = tables
+            )
         } catch (httpException: HttpException) {
             if (httpException.code() == 404) {
                 val detail = parseErrorDetail(httpException.response()?.errorBody())
                 throw IllegalStateException(detail ?: "Aktivni layout nije postavljen.")
             }
             throw httpException
+        }
+    }
+
+    override suspend fun getAllowedLayouts(): List<AllowedLayout> {
+        return api.getAllowedLayouts().layouts.map { layout ->
+            AllowedLayout(
+                id = layout.id,
+                name = layout.name,
+                isDefault = layout.isDefault
+            )
         }
     }
 

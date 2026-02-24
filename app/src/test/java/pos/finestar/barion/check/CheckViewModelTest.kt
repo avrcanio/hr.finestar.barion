@@ -13,20 +13,18 @@ import org.junit.Rule
 import org.junit.Test
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
-import pos.finestar.barion.domain.model.CatalogProduct
-import pos.finestar.barion.domain.model.DrinkCategory
-import pos.finestar.barion.domain.model.DrinkCategoryDisplay
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.AuthRepository
-import pos.finestar.barion.domain.repo.CatalogRepository
 import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoryDisplayUseCase
+import pos.finestar.barion.domain.usecase.GratisCheckItemUseCase
 import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
+import pos.finestar.barion.domain.usecase.CloseCheckUseCase
+import pos.finestar.barion.domain.usecase.OtpisCheckItemUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
-import pos.finestar.barion.domain.usecase.SearchProductsUseCase
+import pos.finestar.barion.domain.usecase.SendToBarUseCase
+import pos.finestar.barion.domain.usecase.StornoCheckItemUseCase
 import pos.finestar.barion.domain.usecase.UpdateCheckItemQtyUseCase
 import pos.finestar.barion.testutil.MainDispatcherRule
 import pos.finestar.barion.ui.navigation.NavRoutes
@@ -43,14 +41,6 @@ class CheckViewModelTest {
         override suspend fun verifyPin(pin: String) = Unit
         override suspend fun currentUserDisplayName(): String? = "Test User"
         override suspend fun logout() = Unit
-    }
-
-    private val catalogRepository = object : CatalogRepository {
-        override suspend fun getDrinkCategories(includeInactive: Boolean): List<DrinkCategory> = emptyList()
-        override suspend fun getDrinkCategoryDisplay(rootId: Long): DrinkCategoryDisplay {
-            return DrinkCategoryDisplay(rootId = rootId)
-        }
-        override suspend fun searchProducts(query: String?, drinkCategoryId: Long?): List<CatalogProduct> = emptyList()
     }
 
     @Test
@@ -70,9 +60,20 @@ class CheckViewModelTest {
                     total = 3.0
                 )
             }
-            override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun addItem(
+                checkId: Long,
+                productId: Long,
+                qty: Int,
+                unitPrice: Double,
+                productName: String?
+            ): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun stornoItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun gratisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun otpisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun sendToBar(checkId: Long): CheckSession = error("unused")
+            override suspend fun closeCheck(checkId: Long): CheckSession? = error("unused")
             override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
@@ -87,11 +88,13 @@ class CheckViewModelTest {
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
             removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            stornoCheckItemUseCase = StornoCheckItemUseCase(repository),
+            gratisCheckItemUseCase = GratisCheckItemUseCase(repository),
+            otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
+            closeCheckUseCase = CloseCheckUseCase(repository),
+            sendToBarUseCase = SendToBarUseCase(repository),
             issueReceiptUseCase = IssueReceiptUseCase(repository),
-            authRepository = authRepository,
-            getDrinkCategoriesUseCase = GetDrinkCategoriesUseCase(catalogRepository),
-            getDrinkCategoryDisplayUseCase = GetDrinkCategoryDisplayUseCase(catalogRepository),
-            searchProductsUseCase = SearchProductsUseCase(catalogRepository)
+            authRepository = authRepository
         )
 
         advanceUntilIdle()
@@ -111,9 +114,20 @@ class CheckViewModelTest {
             override suspend fun getCheck(checkId: Long): CheckSession {
                 throw IllegalStateException("Network error")
             }
-            override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun addItem(
+                checkId: Long,
+                productId: Long,
+                qty: Int,
+                unitPrice: Double,
+                productName: String?
+            ): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun stornoItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun gratisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun otpisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun sendToBar(checkId: Long): CheckSession = error("unused")
+            override suspend fun closeCheck(checkId: Long): CheckSession? = error("unused")
             override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
@@ -128,11 +142,13 @@ class CheckViewModelTest {
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
             removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            stornoCheckItemUseCase = StornoCheckItemUseCase(repository),
+            gratisCheckItemUseCase = GratisCheckItemUseCase(repository),
+            otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
+            closeCheckUseCase = CloseCheckUseCase(repository),
+            sendToBarUseCase = SendToBarUseCase(repository),
             issueReceiptUseCase = IssueReceiptUseCase(repository),
-            authRepository = authRepository,
-            getDrinkCategoriesUseCase = GetDrinkCategoriesUseCase(catalogRepository),
-            getDrinkCategoryDisplayUseCase = GetDrinkCategoryDisplayUseCase(catalogRepository),
-            searchProductsUseCase = SearchProductsUseCase(catalogRepository)
+            authRepository = authRepository
         )
 
         advanceUntilIdle()
@@ -157,12 +173,23 @@ class CheckViewModelTest {
                 )
             }
 
-            override suspend fun addItem(checkId: Long, productId: Long, qty: Int): CheckSession {
+            override suspend fun addItem(
+                checkId: Long,
+                productId: Long,
+                qty: Int,
+                unitPrice: Double,
+                productName: String?
+            ): CheckSession {
                 throw SocketTimeoutException("timeout")
             }
 
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun stornoItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun gratisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun otpisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun sendToBar(checkId: Long): CheckSession = error("unused")
+            override suspend fun closeCheck(checkId: Long): CheckSession? = error("unused")
             override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
         }
 
@@ -177,15 +204,17 @@ class CheckViewModelTest {
             addItemToCheckUseCase = AddItemToCheckUseCase(repository),
             updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
             removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            stornoCheckItemUseCase = StornoCheckItemUseCase(repository),
+            gratisCheckItemUseCase = GratisCheckItemUseCase(repository),
+            otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
+            closeCheckUseCase = CloseCheckUseCase(repository),
+            sendToBarUseCase = SendToBarUseCase(repository),
             issueReceiptUseCase = IssueReceiptUseCase(repository),
-            authRepository = authRepository,
-            getDrinkCategoriesUseCase = GetDrinkCategoriesUseCase(catalogRepository),
-            getDrinkCategoryDisplayUseCase = GetDrinkCategoryDisplayUseCase(catalogRepository),
-            searchProductsUseCase = SearchProductsUseCase(catalogRepository)
+            authRepository = authRepository
         )
 
         advanceUntilIdle()
-        vm.onAddItem(productId = 2L, qty = 1)
+        vm.onAddItem(productId = 2L, qty = 1, unitPrice = 2.5)
         advanceUntilIdle()
 
         val state = vm.uiState.value

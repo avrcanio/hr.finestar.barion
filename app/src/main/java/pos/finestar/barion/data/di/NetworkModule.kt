@@ -6,11 +6,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import pos.finestar.barion.BuildConfig
 import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.data.network.AuthInterceptor
+import pos.finestar.barion.data.network.Ipv4FirstDns
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -32,11 +34,17 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideDns(): Dns = Ipv4FirstDns()
+
+    @Provides
+    @Singleton
     fun provideOkHttp(
         authInterceptor: AuthInterceptor,
-        loggingInterceptor: HttpLoggingInterceptor
+        loggingInterceptor: HttpLoggingInterceptor,
+        dns: Dns
     ): OkHttpClient {
         return OkHttpClient.Builder()
+            .dns(dns)
             .addInterceptor(authInterceptor)
             .addInterceptor(loggingInterceptor)
             .build()

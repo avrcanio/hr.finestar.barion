@@ -1,25 +1,29 @@
 package pos.finestar.barion.check
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,32 +37,29 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import pos.finestar.barion.domain.model.CheckItem
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun CheckScreen(
     state: CheckViewModel.UiState,
     onBack: () -> Unit,
-    onOpenAddDialog: () -> Unit,
-    onDismissAddDialog: () -> Unit,
-    onAddItemQueryChanged: (String) -> Unit,
-    onCategorySelected: (Long?) -> Unit,
-    onAddItem: (productId: Long, qty: Int) -> Unit,
-    onIncreaseQty: (CheckItem) -> Unit,
-    onDecreaseQty: (CheckItem) -> Unit,
-    onRemoveItem: (CheckItem) -> Unit,
+    onOpenAddItems: () -> Unit,
+    onItemLongPress: (CheckItem) -> Unit,
+    onItemActionReasonChanged: (String) -> Unit,
+    onItemActionQtyChanged: (String) -> Unit,
+    onDismissItemActionDialog: () -> Unit,
+    onConfirmStorno: () -> Unit,
+    onConfirmGratis: () -> Unit,
+    onConfirmOtpis: () -> Unit,
+    onFree: () -> Unit,
     onPay: () -> Unit,
     onPayPinChanged: (String) -> Unit,
     onPayPinDismiss: () -> Unit,
@@ -76,6 +77,7 @@ fun CheckScreen(
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -97,25 +99,41 @@ fun CheckScreen(
             )
         },
         bottomBar = {
-            Row(
+            val isZeroTotal = kotlin.math.abs(state.total) < 0.005
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .padding(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = onOpenAddDialog,
-                    modifier = Modifier.weight(1f),
-                    enabled = !state.isLoading && !state.isMutating
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Dodaj stavku")
-                }
-                Button(
-                    onClick = onPay,
-                    modifier = Modifier.weight(1f),
-                    enabled = !state.isLoading && !state.isMutating && state.items.isNotEmpty()
-                ) {
-                    Text(if (state.isMutating) "..." else "Naplata")
+                    Button(
+                        onClick = onOpenAddItems,
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.isLoading && !state.isMutating
+                    ) {
+                        Text("Dodaj stavku")
+                    }
+                    Button(
+                        onClick = if (isZeroTotal) onFree else onPay,
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.isLoading && !state.isMutating && state.items.isNotEmpty()
+                        ,
+                        colors = if (isZeroTotal) {
+                            ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF7BC67B),
+                                contentColor = Color(0xFF1D1D1D)
+                            )
+                        } else {
+                            ButtonDefaults.buttonColors()
+                        }
+                    ) {
+                        Text(if (state.isMutating) "..." else if (isZeroTotal) "Free" else "Naplata")
+                    }
                 }
             }
         }
@@ -158,39 +176,15 @@ fun CheckScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     ItemsList(
                         items = state.items,
-                        isMutating = state.isMutating,
-                        onIncreaseQty = onIncreaseQty,
-                        onDecreaseQty = onDecreaseQty,
-                        onRemoveItem = onRemoveItem
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TotalsBlock(
                         subtotal = state.subtotal,
                         tax = state.tax,
-                        total = state.total
+                        total = state.total,
+                        onItemLongPress = onItemLongPress,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
-    }
-
-    if (state.showAddDialog) {
-        AddItemDialog(
-            query = state.addItemQuery,
-            categories = state.categoryOptions,
-            selectedCategoryId = state.selectedCategoryId,
-            products = state.productOptions,
-            isLoading = state.isCatalogLoading,
-            catalogError = state.catalogError,
-            isSubmitting = state.isMutating || state.isCatalogLoading,
-            onDismiss = onDismissAddDialog,
-            onQueryChanged = onAddItemQueryChanged,
-            onCategorySelected = onCategorySelected,
-            onConfirm = { productId, qty ->
-                onAddItem(productId, qty)
-                onDismissAddDialog()
-            }
-        )
     }
 
     if (state.showPayPinDialog) {
@@ -201,6 +195,22 @@ fun CheckScreen(
             onPinChanged = onPayPinChanged,
             onDismiss = onPayPinDismiss,
             onConfirm = onConfirmPay
+        )
+    }
+
+    if (state.showItemActionDialog && state.selectedActionItem != null) {
+        ItemActionDialog(
+            item = state.selectedActionItem,
+            reason = state.actionReason,
+            qty = state.actionQty,
+            isSubmitting = state.isMutating,
+            onReasonChanged = onItemActionReasonChanged,
+            onQtyChanged = onItemActionQtyChanged,
+            onDismiss = onDismissItemActionDialog,
+            onConfirmStorno = onConfirmStorno,
+            onConfirmGratis = onConfirmGratis,
+            onConfirmOtpis = onConfirmOtpis,
+            maxQty = state.actionMaxQty
         )
     }
 }
@@ -242,160 +252,172 @@ private fun TotalsRow(label: String, value: Double, emphasize: Boolean = false) 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ItemsList(
     items: List<CheckItem>,
-    isMutating: Boolean,
-    onIncreaseQty: (CheckItem) -> Unit,
-    onDecreaseQty: (CheckItem) -> Unit,
-    onRemoveItem: (CheckItem) -> Unit
+    subtotal: Double,
+    tax: Double,
+    total: Double,
+    onItemLongPress: (CheckItem) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(items) { item ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
+    val roundSections = items
+        .groupBy { it.roundNumber }
+        .toList()
+        .sortedBy { it.first ?: Int.MAX_VALUE }
+
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        roundSections.forEach { (roundNumber, roundItems) ->
+            item {
+                Text(
+                    text = if (roundNumber == null) "NEW (nije poslano)" else "Runda R$roundNumber",
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+
+            items(roundItems) { item ->
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { onItemLongPress(item) }
+                        ),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when (item.lineType.uppercase()) {
+                            "STORNO" -> Color(0xFFFFE5E5)
+                            "GRATIS" -> Color(0xFFE8F7E8)
+                            "OTPIS" -> Color(0xFFFFF1E0)
+                            else -> MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    )
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(text = item.name)
-                        Text(text = "${"%.2f".format(item.qty * item.price)} EUR")
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { onDecreaseQty(item) }, enabled = !isMutating && item.itemId != null) {
-                                Text("-")
-                            }
-                            Text(text = "${item.qty}x")
-                            TextButton(onClick = { onIncreaseQty(item) }, enabled = !isMutating && item.itemId != null) {
-                                Text("+")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            if (item.lineType != "NORMAL") {
+                                Text(
+                                    text = item.lineType,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
                             }
                         }
 
-                        IconButton(onClick = { onRemoveItem(item) }, enabled = !isMutating && item.itemId != null) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Količina: ${item.qty}x", style = MaterialTheme.typography.bodySmall)
+                            Text("Cijena: ${"%.2f".format(item.price)} EUR", style = MaterialTheme.typography.bodySmall)
+                            Text("Ukupno: ${"%.2f".format(item.qty * item.price)} EUR", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             }
+
+            item {
+                TotalsRow(
+                    label = if (roundNumber == null) "Total NEW" else "Total R$roundNumber",
+                    value = roundItems.sumOf { it.qty * it.price },
+                    emphasize = true
+                )
+            }
+        }
+
+        item {
+            TotalsBlock(
+                subtotal = subtotal,
+                tax = tax,
+                total = total
+            )
         }
     }
 }
 
 @Composable
-private fun AddItemDialog(
-    query: String,
-    categories: List<CheckViewModel.CategoryOption>,
-    selectedCategoryId: Long?,
-    products: List<CheckViewModel.ProductOption>,
-    isLoading: Boolean,
-    catalogError: String?,
+private fun ItemActionDialog(
+    item: CheckItem,
+    reason: String,
+    qty: String,
     isSubmitting: Boolean,
+    onReasonChanged: (String) -> Unit,
+    onQtyChanged: (String) -> Unit,
     onDismiss: () -> Unit,
-    onQueryChanged: (String) -> Unit,
-    onCategorySelected: (Long?) -> Unit,
-    onConfirm: (productId: Long, qty: Int) -> Unit
+    onConfirmStorno: () -> Unit,
+    onConfirmGratis: () -> Unit,
+    onConfirmOtpis: () -> Unit,
+    maxQty: Int
 ) {
-    var selectedProductId by rememberSaveable {
-        mutableLongStateOf(products.firstOrNull()?.id ?: 0L)
-    }
-    var qty by rememberSaveable { mutableIntStateOf(1) }
-    LaunchedEffect(products) {
-        if (products.none { it.id == selectedProductId }) {
-            selectedProductId = products.firstOrNull()?.id ?: 0L
-        }
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Dodaj stavku") },
+        title = { Text("Akcija stavke") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Stavka: ${item.name}")
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = onQueryChanged,
-                    label = { Text("Pretraga") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isSubmitting
+                    value = reason,
+                    onValueChange = onReasonChanged,
+                    label = { Text("Razlog (opcionalno)") },
+                    enabled = !isSubmitting,
+                    singleLine = false
                 )
-                if (categories.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(categories) { category ->
-                            FilterChip(
-                                selected = selectedCategoryId == category.id,
-                                onClick = { onCategorySelected(category.id) },
-                                label = { Text(category.label) },
-                                enabled = !isSubmitting
-                            )
-                        }
-                    }
-                }
-                if (!catalogError.isNullOrBlank()) {
-                    Text(
-                        text = catalogError,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                if (isLoading) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                }
-                products.forEach { product ->
-                    val isSelected = selectedProductId == product.id
-                    Button(
-                        onClick = { selectedProductId = product.id },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isSubmitting
-                    ) {
-                        Text(if (isSelected) "✓ ${product.label}" else product.label)
-                    }
-                }
-                if (!isLoading && products.isEmpty()) {
-                    Text(
-                        text = "Nema artikala za odabrani filter.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Qty:")
-                    TextButton(onClick = { qty = (qty - 1).coerceAtLeast(1) }, enabled = !isSubmitting) {
-                        Text("-")
-                    }
-                    Text("$qty")
-                    TextButton(onClick = { qty += 1 }, enabled = !isSubmitting) {
-                        Text("+")
-                    }
-                }
+                OutlinedTextField(
+                    value = qty,
+                    onValueChange = onQtyChanged,
+                    label = { Text("Količina (max $maxQty)") },
+                    enabled = !isSubmitting,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onConfirm(selectedProductId, qty) },
-                enabled = !isSubmitting && !isLoading && selectedProductId > 0L
-            ) {
-                Text("Dodaj")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onConfirmStorno,
+                    enabled = !isSubmitting,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFE5E5),
+                        contentColor = Color(0xFF2E2E2E)
+                    )
+                ) {
+                    Text("Storno")
+                }
+                Button(
+                    onClick = onConfirmGratis,
+                    enabled = !isSubmitting,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFE8F7E8),
+                        contentColor = Color(0xFF2E2E2E)
+                    )
+                ) {
+                    Text("Gratis")
+                }
+                Button(
+                    onClick = onConfirmOtpis,
+                    enabled = !isSubmitting,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFF1E0),
+                        contentColor = Color(0xFF2E2E2E)
+                    )
+                ) {
+                    Text("Otpis")
+                }
             }
         },
         dismissButton = {

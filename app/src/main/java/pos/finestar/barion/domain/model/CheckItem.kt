@@ -5,5 +5,10 @@ data class CheckItem(
     val productId: Long? = null,
     val name: String,
     val qty: Int,
-    val price: Double
+    val price: Double,
+    val lineType: String = "NORMAL",
+    val note: String? = null,
+    val roundNumber: Int? = null,
+    val sentToBar: Boolean = false,
+    val sentAt: String? = null
 )

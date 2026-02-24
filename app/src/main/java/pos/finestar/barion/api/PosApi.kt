@@ -1,9 +1,12 @@
 package pos.finestar.barion.api
 
+import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import pos.finestar.barion.api.model.ActiveLayoutDto
+import pos.finestar.barion.api.model.AllowedLayoutsDto
 import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.CheckDto
+import pos.finestar.barion.api.model.CheckItemActionRequestDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
@@ -38,23 +41,38 @@ interface PosApi {
     suspend fun me(): MeResponseDto
 
     @GET("/api/pos/active-layout/")
-    suspend fun getActiveLayout(): ActiveLayoutDto
+    suspend fun getActiveLayout(
+        @Query("layout_id") layoutId: Long? = null,
+        @Query("include_allowed") includeAllowed: Int? = null
+    ): ActiveLayoutDto
+
+    @GET("/api/pos/layouts/allowed/")
+    suspend fun getAllowedLayouts(): AllowedLayoutsDto
 
     @GET("/api/drink-categories/")
     suspend fun getDrinkCategories(
-        @Query("include_inactive") includeInactive: Int? = null
-    ): JsonObject
+        @Query("include_inactive") includeInactive: Int? = null,
+        @Query("level") level: Int? = null
+    ): JsonElement
 
     @GET("/api/pos/drink-categories/display/")
     suspend fun getDrinkCategoryDisplay(
         @Query("root_id") rootId: Long
-    ): JsonObject
+    ): JsonElement
 
     @GET("/api/pos/products/search/")
     suspend fun searchProducts(
         @Query("q") query: String? = null,
         @Query("drink_category_id") drinkCategoryId: Long? = null
-    ): JsonObject
+    ): JsonElement
+
+    @GET("/api/artikli/")
+    suspend fun getArtikli(
+        @Query("drink_category_id") drinkCategoryId: Long? = null,
+        @Query("q") query: String? = null,
+        @Query("is_sellable") isSellable: Int? = 1,
+        @Query("is_stock_item") isStockItem: Int? = null
+    ): JsonElement
 
     @GET("/api/pos/table-status/")
     suspend fun getTableStatuses(
@@ -92,6 +110,34 @@ interface PosApi {
     suspend fun deleteCheckItem(
         @Path("itemId") itemId: Long
     ): Response<Unit>
+
+    @POST("/api/pos/check-items/{itemId}/storno/")
+    suspend fun stornoCheckItem(
+        @Path("itemId") itemId: Long,
+        @Body request: CheckItemActionRequestDto = CheckItemActionRequestDto()
+    ): JsonObject
+
+    @POST("/api/pos/check-items/{itemId}/gratis/")
+    suspend fun gratisCheckItem(
+        @Path("itemId") itemId: Long,
+        @Body request: CheckItemActionRequestDto = CheckItemActionRequestDto()
+    ): JsonObject
+
+    @POST("/api/pos/check-items/{itemId}/otpis/")
+    suspend fun otpisCheckItem(
+        @Path("itemId") itemId: Long,
+        @Body request: CheckItemActionRequestDto = CheckItemActionRequestDto()
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/send-to-bar/")
+    suspend fun sendToBar(
+        @Path("checkId") checkId: Long
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/close/")
+    suspend fun closeCheck(
+        @Path("checkId") checkId: Long
+    ): JsonObject
 
     @POST("/api/pos/checks/{checkId}/issue-receipt/")
     suspend fun issueReceipt(

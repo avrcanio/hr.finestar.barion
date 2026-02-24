@@ -15,8 +15,8 @@ android {
         applicationId = "pos.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.006"
+        versionCode = 35
+        versionName = "1.035"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
@@ -73,6 +73,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")

@@ -10,10 +10,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
@@ -26,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import pos.finestar.barion.domain.model.FloorTable
 import pos.finestar.barion.domain.model.TableStatus
 
@@ -33,10 +42,12 @@ private const val CANVAS_WIDTH = 1000f
 private const val CANVAS_HEIGHT = 1000f
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun FloorPlanScreen(
     state: FloorPlanViewModel.UiState,
     onTableClick: (Long) -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onLayoutSelected: (Long) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -53,33 +64,84 @@ fun FloorPlanScreen(
     }
 
     Surface(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            state.userDisplayName?.takeIf { it.isNotBlank() }?.let { displayName ->
+                                Text(
+                                    text = "Prijavljen: $displayName",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            state.selectedLayoutName?.takeIf { it.isNotBlank() }?.let { layoutName ->
+                                Text(
+                                    text = "Layout: $layoutName",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            if (state.allowedLayouts.isNotEmpty()) {
+                                LazyRow(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                ) {
+                                    items(state.allowedLayouts) { layout ->
+                                        FilterChip(
+                                            selected = layout.id == state.selectedLayoutId,
+                                            onClick = { onLayoutSelected(layout.id) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            label = {
+                                                Text(
+                                                    if (layout.isDefault) "${layout.name} (default)" else layout.name
+                                                )
+                                            },
+                                            modifier = Modifier.padding(end = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        ) { paddingValues ->
         when {
             state.isLoading -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
                     CircularProgressIndicator()
                 }
             }
 
             state.error != null -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(text = state.error)
                 }
             }
 
             else -> {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Text(
-                        text = "FloorPlan",
-                        style = MaterialTheme.typography.headlineSmall,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                    )
-                    state.userDisplayName?.takeIf { it.isNotBlank() }?.let { displayName ->
-                        Text(
-                            text = "Prijavljen: $displayName",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                    }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
                     FloorCanvas(
                         tables = state.tables,
                         modifier = Modifier
@@ -90,6 +152,7 @@ fun FloorPlanScreen(
                     )
                 }
             }
+        }
         }
     }
 }

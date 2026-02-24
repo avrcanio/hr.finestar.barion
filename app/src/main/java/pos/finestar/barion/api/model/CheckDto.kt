@@ -28,15 +28,30 @@ data class CheckDto(
 )
 
 data class AddCheckItemRequestDto(
+    @SerializedName("artikl_id")
+    val artiklId: Long? = null,
+    @SerializedName("artikl_name")
+    val artiklName: String? = null,
     @SerializedName("product_id")
-    val productId: Long,
-    @SerializedName("qty")
-    val qty: Int
+    val productId: Long? = null,
+    @SerializedName("product_name")
+    val productName: String? = null,
+    @SerializedName("quantity")
+    val quantity: String,
+    @SerializedName("unit_price")
+    val unitPrice: String
 )
 
 data class UpdateCheckItemQtyRequestDto(
     @SerializedName("qty")
     val qty: Int
+)
+
+data class CheckItemActionRequestDto(
+    @SerializedName("reason")
+    val reason: String? = null,
+    @SerializedName("quantity")
+    val quantity: String? = null
 )
 
 data class IssueReceiptRequestDto(
