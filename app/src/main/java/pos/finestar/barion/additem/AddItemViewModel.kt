@@ -247,14 +247,15 @@ class AddItemViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             runCatching {
-                val categories = getDrinkCategoriesUseCase(level = 2)
+                val categories = getDrinkCategoriesUseCase(level = 2, forceRefresh = false)
                     .sortedBy { it.labelForSort() }
                     .map { CategoryUi(id = it.id, label = it.name) }
                 val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + categories
                 val initialCategoryId: Long? = null
                 val products = searchProductsUseCase(
                     query = null,
-                    drinkCategoryId = initialCategoryId
+                    drinkCategoryId = initialCategoryId,
+                    forceRefresh = false
                 ).map { it.toUi() }
 
                 Triple(categoriesWithAll, initialCategoryId, products)
@@ -268,6 +269,10 @@ class AddItemViewModel @Inject constructor(
                         error = null
                     )
                 }
+                refreshCatalogInBackground(
+                    query = _uiState.value.query,
+                    selectedCategoryId = selectedCategoryId
+                )
             }.onFailure { throwable ->
                 _uiState.update {
                     it.copy(
@@ -284,16 +289,63 @@ class AddItemViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             delay(250)
             val state = _uiState.value
+            val querySnapshot = state.query
+            val categorySnapshot = state.selectedCategoryId
             runCatching {
                 searchProductsUseCase(
-                    query = state.query,
-                    drinkCategoryId = state.selectedCategoryId
+                    query = querySnapshot,
+                    drinkCategoryId = categorySnapshot,
+                    forceRefresh = false
                 ).map { it.toUi() }
             }.onSuccess { products ->
-                _uiState.update { it.copy(products = products, error = null) }
+                val latest = _uiState.value
+                if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
+                    _uiState.update { it.copy(products = products, error = null) }
+                }
             }.onFailure { throwable ->
                 _uiState.update {
                     it.copy(error = throwable.message ?: "Ne mogu učitati artikle.")
+                }
+            }
+
+            runCatching {
+                searchProductsUseCase(
+                    query = querySnapshot,
+                    drinkCategoryId = categorySnapshot,
+                    forceRefresh = true
+                ).map { it.toUi() }
+            }.onSuccess { freshProducts ->
+                val latest = _uiState.value
+                if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
+                    _uiState.update { it.copy(products = freshProducts, error = null) }
+                }
+            }
+        }
+    }
+
+    private fun refreshCatalogInBackground(query: String, selectedCategoryId: Long?) {
+        viewModelScope.launch {
+            runCatching {
+                val freshCategories = getDrinkCategoriesUseCase(level = 2, forceRefresh = true)
+                    .sortedBy { it.labelForSort() }
+                    .map { CategoryUi(id = it.id, label = it.name) }
+                val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + freshCategories
+                val freshProducts = searchProductsUseCase(
+                    query = query.takeIf { it.isNotBlank() },
+                    drinkCategoryId = selectedCategoryId,
+                    forceRefresh = true
+                ).map { it.toUi() }
+                categoriesWithAll to freshProducts
+            }.onSuccess { (categories, products) ->
+                val latest = _uiState.value
+                if (latest.query == query && latest.selectedCategoryId == selectedCategoryId) {
+                    _uiState.update {
+                        it.copy(
+                            categories = categories,
+                            products = products,
+                            error = null
+                        )
+                    }
                 }
             }
         }

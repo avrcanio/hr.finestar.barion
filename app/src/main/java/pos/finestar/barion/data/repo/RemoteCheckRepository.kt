@@ -14,6 +14,8 @@ import pos.finestar.barion.api.model.CheckItemActionRequestDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
+import pos.finestar.barion.data.local.ApiCacheDao
+import pos.finestar.barion.data.local.ApiCacheEntity
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
@@ -23,10 +25,12 @@ import retrofit2.HttpException
 @Singleton
 class RemoteCheckRepository @Inject constructor(
     private val api: PosApi,
-    private val gson: Gson
+    private val gson: Gson,
+    private val apiCacheDao: ApiCacheDao
 ) : CheckRepository {
 
     private val checkCache = ConcurrentHashMap<Long, CheckSession>()
+    private val checkTtlMillis = 15_000L
 
     override suspend fun createCheck(tableId: Long): CheckSession {
         val response = try {
@@ -47,12 +51,25 @@ class RemoteCheckRepository @Inject constructor(
         return check
     }
 
-    override suspend fun getCheck(checkId: Long): CheckSession? {
-        return runCatching {
+    override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession? {
+        if (!forceRefresh) {
+            checkCache[checkId]?.let { return it }
+            readCheckCache(checkId, ttlMillis = checkTtlMillis)?.let {
+                cache(it)
+                return it
+            }
+        }
+        try {
             val payload = api.getCheckItems(checkId)
-            CheckItemsMapper.toCheckSession(payload)
-        }.onSuccess { cache(it) }
-            .getOrElse { checkCache[checkId] }
+            val fresh = CheckItemsMapper.toCheckSession(payload)
+            cache(fresh)
+            writeCheckCache(fresh)
+            return fresh
+        } catch (_: Throwable) {
+            return checkCache[checkId]
+                ?: readCheckCache(checkId, ttlMillis = checkTtlMillis)
+                ?: readCheckCache(checkId, ttlMillis = Long.MAX_VALUE)
+        }
     }
 
     override suspend fun addItem(
@@ -152,6 +169,7 @@ class RemoteCheckRepository @Inject constructor(
         val mapped = runCatching { CheckItemsMapper.toCheckSession(payload) }.getOrNull()
         if (mapped != null) {
             cache(mapped)
+            writeCheckCache(mapped)
             return mapped
         }
         return requireNotNull(getCheck(checkId)) { "Check $checkId not found after send-to-bar." }
@@ -166,6 +184,7 @@ class RemoteCheckRepository @Inject constructor(
         val mapped = runCatching { CheckItemsMapper.toCheckSession(payload) }.getOrNull()
         if (mapped != null) {
             cache(mapped)
+            writeCheckCache(mapped)
             return mapped
         }
         return getCheck(checkId)
@@ -179,6 +198,7 @@ class RemoteCheckRepository @Inject constructor(
         val mapped = runCatching { CheckItemsMapper.toCheckSession(payload) }.getOrNull()
         if (mapped != null) {
             cache(mapped)
+            writeCheckCache(mapped)
             return mapped
         }
         return getCheck(checkId)
@@ -186,6 +206,23 @@ class RemoteCheckRepository @Inject constructor(
 
     private fun cache(check: CheckSession) {
         checkCache[check.checkId] = check
+    }
+
+    private suspend fun writeCheckCache(check: CheckSession) {
+        apiCacheDao.upsert(
+            ApiCacheEntity(
+                key = "check_items:${check.checkId}",
+                payload = gson.toJson(check),
+                updatedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private suspend fun readCheckCache(checkId: Long, ttlMillis: Long): CheckSession? {
+        val entry = apiCacheDao.get("check_items:$checkId") ?: return null
+        val isValid = System.currentTimeMillis() - entry.updatedAtMillis <= ttlMillis
+        if (!isValid) return null
+        return runCatching { gson.fromJson(entry.payload, CheckSession::class.java) }.getOrNull()
     }
 
     private fun mapHttpException(httpException: HttpException, defaultMessage: String): IllegalStateException {

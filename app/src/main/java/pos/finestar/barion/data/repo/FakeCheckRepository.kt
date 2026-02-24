@@ -34,7 +34,7 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
             ?: throw IllegalArgumentException("Open check for table $tableId not found")
     }
 
-    override suspend fun getCheck(checkId: Long): CheckSession? {
+    override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession? {
         return checksByTableId.values.firstOrNull { it.checkId == checkId }
     }
 

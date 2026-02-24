@@ -5,7 +5,7 @@ import pos.finestar.barion.domain.model.CheckSession
 interface CheckRepository {
     suspend fun createCheck(tableId: Long): CheckSession
     suspend fun getOpenCheckByTable(tableId: Long): CheckSession
-    suspend fun getCheck(checkId: Long): CheckSession?
+    suspend fun getCheck(checkId: Long, forceRefresh: Boolean = false): CheckSession?
     suspend fun addItem(
         checkId: Long,
         productId: Long,

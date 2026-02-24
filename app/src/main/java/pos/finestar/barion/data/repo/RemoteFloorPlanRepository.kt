@@ -1,11 +1,14 @@
 package pos.finestar.barion.data.repo
 
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import javax.inject.Inject
 import javax.inject.Singleton
 import okhttp3.ResponseBody
 import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.ApiErrorDto
+import pos.finestar.barion.data.local.ApiCacheDao
+import pos.finestar.barion.data.local.ApiCacheEntity
 import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorTable
 import pos.finestar.barion.domain.model.FloorPlanData
@@ -16,10 +19,24 @@ import retrofit2.HttpException
 @Singleton
 class RemoteFloorPlanRepository @Inject constructor(
     private val api: PosApi,
-    private val gson: Gson
+    private val gson: Gson,
+    private val apiCacheDao: ApiCacheDao
 ) : FloorPlanRepository {
 
-    override suspend fun getTables(layoutId: Long?): FloorPlanData {
+    private val activeLayoutTtlMillis = 60_000L
+    private val allowedLayoutsTtlMillis = 5 * 60_000L
+
+    override suspend fun getTables(layoutId: Long?, forceRefresh: Boolean): FloorPlanData {
+        val cacheKey = "active_layout:${layoutId ?: 0L}"
+        if (!forceRefresh) {
+            val cached = readCacheEntry<FloorPlanData>(
+                key = cacheKey,
+                ttlMillis = activeLayoutTtlMillis,
+                type = FloorPlanData::class.java
+            )
+            if (cached != null) return cached
+        }
+
         return try {
             val activeLayout = api.getActiveLayout(
                 layoutId = layoutId,
@@ -54,8 +71,14 @@ class RemoteFloorPlanRepository @Inject constructor(
                     )
                 },
                 tables = tables
-            )
+            ).also { fresh -> writeCacheEntry(cacheKey, fresh) }
         } catch (httpException: HttpException) {
+            val stale = readCacheEntry<FloorPlanData>(
+                key = cacheKey,
+                ttlMillis = Long.MAX_VALUE,
+                type = FloorPlanData::class.java
+            )
+            if (stale != null) return stale
             if (httpException.code() == 404) {
                 val detail = parseErrorDetail(httpException.response()?.errorBody())
                 throw IllegalStateException(detail ?: "Aktivni layout nije postavljen.")
@@ -64,14 +87,56 @@ class RemoteFloorPlanRepository @Inject constructor(
         }
     }
 
-    override suspend fun getAllowedLayouts(): List<AllowedLayout> {
-        return api.getAllowedLayouts().layouts.map { layout ->
-            AllowedLayout(
-                id = layout.id,
-                name = layout.name,
-                isDefault = layout.isDefault
+    override suspend fun getAllowedLayouts(forceRefresh: Boolean): List<AllowedLayout> {
+        val cacheKey = "allowed_layouts"
+        if (!forceRefresh) {
+            val cached = readCacheEntry<List<AllowedLayout>>(
+                key = cacheKey,
+                ttlMillis = allowedLayoutsTtlMillis,
+                type = object : TypeToken<List<AllowedLayout>>() {}.type
             )
+            if (cached != null) return cached
         }
+
+        try {
+            val fresh = api.getAllowedLayouts().layouts.map { layout ->
+                AllowedLayout(
+                    id = layout.id,
+                    name = layout.name,
+                    isDefault = layout.isDefault
+                )
+            }
+
+            writeCacheEntry(cacheKey, fresh)
+            return fresh
+        } catch (t: Throwable) {
+            return readCacheEntry<List<AllowedLayout>>(
+                key = cacheKey,
+                ttlMillis = Long.MAX_VALUE,
+                type = object : TypeToken<List<AllowedLayout>>() {}.type
+            ) ?: throw t
+        }
+    }
+
+    private suspend fun writeCacheEntry(key: String, value: Any) {
+        apiCacheDao.upsert(
+            ApiCacheEntity(
+                key = key,
+                payload = gson.toJson(value),
+                updatedAtMillis = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private suspend fun <T> readCacheEntry(
+        key: String,
+        ttlMillis: Long,
+        type: java.lang.reflect.Type
+    ): T? {
+        val entry = apiCacheDao.get(key) ?: return null
+        val isValid = System.currentTimeMillis() - entry.updatedAtMillis <= ttlMillis
+        if (!isValid) return null
+        return runCatching { gson.fromJson<T>(entry.payload, type) }.getOrNull()
     }
 
     private fun parseErrorDetail(errorBody: ResponseBody?): String? {

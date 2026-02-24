@@ -48,7 +48,7 @@ class CheckViewModelTest {
         val repository = object : CheckRepository {
             override suspend fun createCheck(tableId: Long): CheckSession = error("unused")
             override suspend fun getOpenCheckByTable(tableId: Long): CheckSession = error("unused")
-            override suspend fun getCheck(checkId: Long): CheckSession {
+            override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession {
                 return CheckSession(
                     checkId = checkId,
                     tableId = 7L,
@@ -111,7 +111,7 @@ class CheckViewModelTest {
         val repository = object : CheckRepository {
             override suspend fun createCheck(tableId: Long): CheckSession = error("unused")
             override suspend fun getOpenCheckByTable(tableId: Long): CheckSession = error("unused")
-            override suspend fun getCheck(checkId: Long): CheckSession {
+            override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession {
                 throw IllegalStateException("Network error")
             }
             override suspend fun addItem(
@@ -163,7 +163,7 @@ class CheckViewModelTest {
         val repository = object : CheckRepository {
             override suspend fun createCheck(tableId: Long): CheckSession = error("unused")
             override suspend fun getOpenCheckByTable(tableId: Long): CheckSession = error("unused")
-            override suspend fun getCheck(checkId: Long): CheckSession {
+            override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession {
                 return CheckSession(
                     checkId = checkId,
                     tableId = 7L,

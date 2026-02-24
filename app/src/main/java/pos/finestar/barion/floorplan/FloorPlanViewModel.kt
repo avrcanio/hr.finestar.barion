@@ -115,34 +115,12 @@ class FloorPlanViewModel @Inject constructor(
                 _uiState.update { it.copy(error = null) }
             }
 
-            runCatching { getFloorTables(layoutId = layoutId) }
+            runCatching { getFloorTables(layoutId = layoutId, forceRefresh = false) }
                 .onSuccess { floorPlan ->
-                    val fallbackAllowed = runCatching { getAllowedLayouts() }.getOrDefault(emptyList())
-                    val resolvedLayouts = when {
-                        floorPlan.allowedLayouts.isNotEmpty() && fallbackAllowed.isNotEmpty() -> {
-                            (floorPlan.allowedLayouts + fallbackAllowed)
-                                .distinctBy { it.id }
-                                .sortedBy { it.name.lowercase() }
-                        }
-                        floorPlan.allowedLayouts.isNotEmpty() -> floorPlan.allowedLayouts
-                        fallbackAllowed.isNotEmpty() -> fallbackAllowed.sortedBy { it.name.lowercase() }
-                        else -> _uiState.value.allowedLayouts
-                    }
-                    val selected = when {
-                        resolvedLayouts.any { it.id == floorPlan.layoutId } -> floorPlan.layoutId
-                        _uiState.value.selectedLayoutId != null &&
-                            resolvedLayouts.any { it.id == _uiState.value.selectedLayoutId } -> _uiState.value.selectedLayoutId
-                        else -> resolvedLayouts.firstOrNull { it.isDefault }?.id ?: resolvedLayouts.firstOrNull()?.id ?: floorPlan.layoutId
-                    }
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            tables = floorPlan.tables,
-                            allowedLayouts = resolvedLayouts,
-                            selectedLayoutId = selected,
-                            selectedLayoutName = floorPlan.layoutName,
-                            error = null
-                        )
+                    applyFloorPlan(floorPlan = floorPlan, forceRefresh = false)
+                    viewModelScope.launch {
+                        runCatching { getFloorTables(layoutId = layoutId, forceRefresh = true) }
+                            .onSuccess { fresh -> applyFloorPlan(floorPlan = fresh, forceRefresh = true) }
                     }
                 }
                 .onFailure { throwable ->
@@ -153,6 +131,41 @@ class FloorPlanViewModel @Inject constructor(
                         )
                     }
                 }
+        }
+    }
+
+    private suspend fun applyFloorPlan(
+        floorPlan: pos.finestar.barion.domain.model.FloorPlanData,
+        forceRefresh: Boolean
+    ) {
+        val fallbackAllowed = runCatching {
+            getAllowedLayouts(forceRefresh = forceRefresh)
+        }.getOrDefault(emptyList())
+        val resolvedLayouts = when {
+            floorPlan.allowedLayouts.isNotEmpty() && fallbackAllowed.isNotEmpty() -> {
+                (floorPlan.allowedLayouts + fallbackAllowed)
+                    .distinctBy { it.id }
+                    .sortedBy { it.name.lowercase() }
+            }
+            floorPlan.allowedLayouts.isNotEmpty() -> floorPlan.allowedLayouts
+            fallbackAllowed.isNotEmpty() -> fallbackAllowed.sortedBy { it.name.lowercase() }
+            else -> _uiState.value.allowedLayouts
+        }
+        val selected = when {
+            resolvedLayouts.any { it.id == floorPlan.layoutId } -> floorPlan.layoutId
+            _uiState.value.selectedLayoutId != null &&
+                resolvedLayouts.any { it.id == _uiState.value.selectedLayoutId } -> _uiState.value.selectedLayoutId
+            else -> resolvedLayouts.firstOrNull { it.isDefault }?.id ?: resolvedLayouts.firstOrNull()?.id ?: floorPlan.layoutId
+        }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                tables = floorPlan.tables,
+                allowedLayouts = resolvedLayouts,
+                selectedLayoutId = selected,
+                selectedLayoutName = floorPlan.layoutName,
+                error = null
+            )
         }
     }
 

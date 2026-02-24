@@ -7,5 +7,7 @@ import pos.finestar.barion.domain.repo.FloorPlanRepository
 class GetAllowedLayoutsUseCase @Inject constructor(
     private val repository: FloorPlanRepository
 ) {
-    suspend operator fun invoke(): List<AllowedLayout> = repository.getAllowedLayouts()
+    suspend operator fun invoke(forceRefresh: Boolean = false): List<AllowedLayout> {
+        return repository.getAllowedLayouts(forceRefresh = forceRefresh)
+    }
 }

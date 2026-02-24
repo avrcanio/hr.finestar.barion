@@ -7,5 +7,8 @@ import pos.finestar.barion.domain.repo.FloorPlanRepository
 class GetFloorTablesUseCase @Inject constructor(
     private val repository: FloorPlanRepository
 ) {
-    suspend operator fun invoke(layoutId: Long? = null): FloorPlanData = repository.getTables(layoutId)
+    suspend operator fun invoke(
+        layoutId: Long? = null,
+        forceRefresh: Boolean = false
+    ): FloorPlanData = repository.getTables(layoutId, forceRefresh = forceRefresh)
 }

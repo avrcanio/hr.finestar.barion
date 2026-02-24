@@ -7,5 +7,7 @@ import pos.finestar.barion.domain.repo.CheckRepository
 class GetCheckByIdUseCase @Inject constructor(
     private val repository: CheckRepository
 ) {
-    suspend operator fun invoke(checkId: Long): CheckSession? = repository.getCheck(checkId)
+    suspend operator fun invoke(checkId: Long, forceRefresh: Boolean = false): CheckSession? {
+        return repository.getCheck(checkId, forceRefresh = forceRefresh)
+    }
 }

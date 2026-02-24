@@ -335,7 +335,7 @@ class CheckViewModel @Inject constructor(
                 authRepository.verifyPin(pin)
                 issueReceiptUseCase(checkId = checkId)
             }.onSuccess {
-                runCatching { getCheckByIdUseCase(checkId) }
+                runCatching { getCheckByIdUseCase(checkId, forceRefresh = true) }
                     .onSuccess { updated -> if (updated != null) applyLoadedCheck(updated) }
                 _uiState.update {
                     it.copy(
@@ -363,7 +363,7 @@ class CheckViewModel @Inject constructor(
     }
 
     fun refresh() {
-        loadCheck()
+        loadCheck(showLoading = false)
     }
 
     private fun mutateCheck(
@@ -398,15 +398,28 @@ class CheckViewModel @Inject constructor(
         }
     }
 
-    private fun loadCheck() {
+    private fun loadCheck(showLoading: Boolean = true) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            if (showLoading) {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            } else {
+                _uiState.update { it.copy(error = null) }
+            }
 
-            runCatching { getCheckByIdUseCase(checkId) }
+            runCatching { getCheckByIdUseCase(checkId, forceRefresh = false) }
                 .onSuccess { check ->
                     if (check != null) {
                         _uiState.update { it.copy(isLoading = false, error = null) }
                         applyLoadedCheck(check)
+                        viewModelScope.launch {
+                            runCatching { getCheckByIdUseCase(checkId, forceRefresh = true) }
+                                .onSuccess { fresh ->
+                                    if (fresh != null) {
+                                        _uiState.update { it.copy(isLoading = false, error = null) }
+                                        applyLoadedCheck(fresh)
+                                    }
+                                }
+                        }
                     } else {
                         _uiState.update {
                             it.copy(

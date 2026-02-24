@@ -4,6 +4,6 @@ import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorPlanData
 
 interface FloorPlanRepository {
-    suspend fun getTables(layoutId: Long? = null): FloorPlanData
-    suspend fun getAllowedLayouts(): List<AllowedLayout>
+    suspend fun getTables(layoutId: Long? = null, forceRefresh: Boolean = false): FloorPlanData
+    suspend fun getAllowedLayouts(forceRefresh: Boolean = false): List<AllowedLayout>
 }

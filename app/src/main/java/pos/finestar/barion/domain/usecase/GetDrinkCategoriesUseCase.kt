@@ -7,7 +7,15 @@ import pos.finestar.barion.domain.repo.CatalogRepository
 class GetDrinkCategoriesUseCase @Inject constructor(
     private val repository: CatalogRepository
 ) {
-    suspend operator fun invoke(includeInactive: Boolean = false, level: Int? = null): List<DrinkCategory> {
-        return repository.getDrinkCategories(includeInactive = includeInactive, level = level)
+    suspend operator fun invoke(
+        includeInactive: Boolean = false,
+        level: Int? = null,
+        forceRefresh: Boolean = false
+    ): List<DrinkCategory> {
+        return repository.getDrinkCategories(
+            includeInactive = includeInactive,
+            level = level,
+            forceRefresh = forceRefresh
+        )
     }
 }
