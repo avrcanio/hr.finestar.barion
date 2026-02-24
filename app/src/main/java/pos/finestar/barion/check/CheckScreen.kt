@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -272,6 +273,7 @@ private fun ItemsList(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         roundSections.forEach { (roundNumber, roundItems) ->
+            val orderedRoundItems = orderRoundItems(roundItems)
             item {
                 Text(
                     text = if (roundNumber == null) "NEW (nije poslano)" else "Runda R$roundNumber",
@@ -279,7 +281,10 @@ private fun ItemsList(
                 )
             }
 
-            items(roundItems) { item ->
+            items(orderedRoundItems) { item ->
+                val originalIsStorned =
+                    item.lineType.equals("NORMAL", ignoreCase = true) &&
+                        hasStornoForItem(item, roundItems)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -308,7 +313,12 @@ private fun ItemsList(
                         ) {
                             Text(
                                 text = item.name,
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
+                                textDecoration = if (originalIsStorned) {
+                                    TextDecoration.LineThrough
+                                } else {
+                                    null
+                                }
                             )
                             if (item.lineType != "NORMAL") {
                                 Text(
@@ -349,6 +359,61 @@ private fun ItemsList(
     }
 }
 
+private fun orderRoundItems(items: List<CheckItem>): List<CheckItem> {
+    if (items.isEmpty()) return items
+    val byId = items.associateBy { it.itemId }
+    val stornoByTargetId = items
+        .asSequence()
+        .filter { it.lineType.equals("STORNO", ignoreCase = true) }
+        .mapNotNull { storno -> parseActionTargetId(storno.note)?.let { targetId -> targetId to storno } }
+        .groupBy({ it.first }, { it.second })
+
+    val ordered = mutableListOf<CheckItem>()
+    val addedIds = mutableSetOf<Long>()
+    val addedAnonymous = mutableSetOf<CheckItem>()
+
+    items.forEach { item ->
+        val id = item.itemId
+        if (id != null && id in addedIds) return@forEach
+        if (id == null && item in addedAnonymous) return@forEach
+
+        ordered += item
+        if (id != null) addedIds += id else addedAnonymous += item
+
+        if (item.lineType.equals("NORMAL", ignoreCase = true) && id != null) {
+            val linkedStornos = stornoByTargetId[id].orEmpty()
+            linkedStornos.forEach { storno ->
+                val stornoId = storno.itemId
+                if (stornoId != null) {
+                    if (stornoId !in addedIds) {
+                        ordered += storno
+                        addedIds += stornoId
+                    }
+                } else if (storno !in addedAnonymous) {
+                    ordered += storno
+                    addedAnonymous += storno
+                }
+            }
+        }
+    }
+
+    return ordered
+}
+
+private fun hasStornoForItem(item: CheckItem, inItems: List<CheckItem>): Boolean {
+    val itemId = item.itemId ?: return false
+    return inItems.any { candidate ->
+        candidate.lineType.equals("STORNO", ignoreCase = true) &&
+            parseActionTargetId(candidate.note) == itemId
+    }
+}
+
+private fun parseActionTargetId(note: String?): Long? {
+    if (note.isNullOrBlank()) return null
+    val pattern = Regex("""\[(?:storno|otpis)_of:(\d+)]""", RegexOption.IGNORE_CASE)
+    return pattern.find(note)?.groupValues?.getOrNull(1)?.toLongOrNull()
+}
+
 @Composable
 private fun ItemActionDialog(
     item: CheckItem,
@@ -387,36 +452,47 @@ private fun ItemActionDialog(
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onConfirmStorno,
-                    enabled = !isSubmitting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFFE5E5),
-                        contentColor = Color(0xFF2E2E2E)
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Storno")
+                    Button(
+                        onClick = onConfirmStorno,
+                        enabled = !isSubmitting,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFE5E5),
+                            contentColor = Color(0xFF2E2E2E)
+                        )
+                    ) {
+                        Text("Storno")
+                    }
+                    Button(
+                        onClick = onConfirmGratis,
+                        enabled = !isSubmitting,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFE8F7E8),
+                            contentColor = Color(0xFF2E2E2E)
+                        )
+                    ) {
+                        Text("Gratis")
+                    }
                 }
-                Button(
-                    onClick = onConfirmGratis,
-                    enabled = !isSubmitting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFE8F7E8),
-                        contentColor = Color(0xFF2E2E2E)
-                    )
-                ) {
-                    Text("Gratis")
-                }
-                Button(
-                    onClick = onConfirmOtpis,
-                    enabled = !isSubmitting,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFFF1E0),
-                        contentColor = Color(0xFF2E2E2E)
-                    )
-                ) {
-                    Text("Otpis")
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = onConfirmOtpis,
+                        enabled = !isSubmitting,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFF1E0),
+                            contentColor = Color(0xFF2E2E2E)
+                        )
+                    ) {
+                        Text("Otpis")
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         },

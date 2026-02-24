@@ -191,6 +191,7 @@ class CheckViewModel @Inject constructor(
         }
         mutateCheck(
             onSuccessMessage = "Storno je evidentiran.",
+            refreshFromBackend = true,
             action = {
                 stornoCheckItemUseCase(
                     checkId = checkId,
@@ -214,6 +215,7 @@ class CheckViewModel @Inject constructor(
         }
         mutateCheck(
             onSuccessMessage = "Gratis je evidentiran.",
+            refreshFromBackend = true,
             action = {
                 gratisCheckItemUseCase(
                     checkId = checkId,
@@ -237,6 +239,7 @@ class CheckViewModel @Inject constructor(
         }
         mutateCheck(
             onSuccessMessage = "Otpis je evidentiran.",
+            refreshFromBackend = true,
             action = {
                 otpisCheckItemUseCase(
                     checkId = checkId,
@@ -368,6 +371,7 @@ class CheckViewModel @Inject constructor(
 
     private fun mutateCheck(
         onSuccessMessage: String? = null,
+        refreshFromBackend: Boolean = false,
         action: suspend () -> CheckSession
     ) {
         viewModelScope.launch {
@@ -385,7 +389,13 @@ class CheckViewModel @Inject constructor(
                             message = onSuccessMessage
                         )
                     }
-                    applyLoadedCheck(updated)
+                    if (refreshFromBackend) {
+                        runCatching { getCheckByIdUseCase(checkId, forceRefresh = true) }
+                            .onSuccess { fresh -> if (fresh != null) applyLoadedCheck(fresh) }
+                            .onFailure { applyLoadedCheck(updated) }
+                    } else {
+                        applyLoadedCheck(updated)
+                    }
                 }
                 .onFailure { throwable ->
                     _uiState.update {
