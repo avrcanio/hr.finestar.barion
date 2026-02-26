@@ -1,7 +1,9 @@
 package pos.finestar.barion.additem
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -47,10 +49,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.util.Locale
+import androidx.compose.foundation.ExperimentalFoundationApi
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +64,7 @@ fun AddItemScreen(
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (Long?) -> Unit,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
+    onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
     onQtyChanged: (Int) -> Unit,
     onQtyDialogDismiss: () -> Unit,
     onQtyDialogAdd: () -> Unit,
@@ -81,155 +86,169 @@ fun AddItemScreen(
         }
     }
 
-    Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(),
-                title = {
-                    Column {
-                        Text("Dodaj stavke")
-                        Text(
-                            text = state.tableName,
-                            style = MaterialTheme.typography.labelMedium
-                        )
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            contentWindowInsets = WindowInsets.safeDrawing,
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+            topBar = {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(),
+                    title = {
+                        Column {
+                            Text("Dodaj stavke")
+                            Text(
+                                text = state.tableName,
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Natrag")
+                        }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Natrag")
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(12.dp)
-            ) {
-                Button(
-                    onClick = onCartOpen,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = state.cart.isNotEmpty() && !state.isSubmitting
-                ) {
-                    Text("Pregled košarice (${state.cartItemsCount})")
-                }
-            }
-        }
-    ) { padding ->
-        when {
-            state.isLoading -> {
+                )
+            },
+            bottomBar = {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(12.dp)
                 ) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            state.error != null && state.products.isEmpty() -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(state.error)
-                }
-            }
-
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 12.dp)
-                ) {
-                    OutlinedTextField(
-                        value = state.query,
-                        onValueChange = onQueryChanged,
-                        label = { Text("Pretraga artikla") },
+                    Button(
+                        onClick = onCartOpen,
                         modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                        enabled = state.cart.isNotEmpty() && !state.isSubmitting
+                    ) {
+                        Text("Pregled košarice (${state.cartItemsCount})")
+                    }
+                }
+            }
+        ) { padding ->
+            when {
+                state.isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
 
-                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                        val isWide = maxWidth >= 700.dp
-                        if (isWide) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CategoriesColumn(
-                                    categories = state.categories,
-                                    selectedId = state.selectedCategoryId,
-                                    onCategorySelected = onCategorySelected,
-                                    modifier = Modifier
-                                        .weight(0.34f)
-                                        .fillMaxSize()
-                                )
-                                ProductsGrid(
-                                    products = state.products,
-                                    cartQtyByProductId = state.cart.associate { it.productId to it.qty },
-                                    onProductTapped = onProductTapped,
-                                    modifier = Modifier
-                                        .weight(0.66f)
-                                        .fillMaxSize()
-                                )
-                            }
-                        } else {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                CategoriesRow(
-                                    categories = state.categories,
-                                    selectedId = state.selectedCategoryId,
-                                    onCategorySelected = onCategorySelected
-                                )
-                                ProductsGrid(
-                                    products = state.products,
-                                    cartQtyByProductId = state.cart.associate { it.productId to it.qty },
-                                    onProductTapped = onProductTapped,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                state.error != null && state.products.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(state.error)
+                    }
+                }
+
+                else -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(horizontal = 12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = state.query,
+                            onValueChange = onQueryChanged,
+                            label = { Text("Pretraga artikla") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                            val isWide = maxWidth >= 700.dp
+                            if (isWide) {
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    CategoriesColumn(
+                                        categories = state.categories,
+                                        selectedId = state.selectedCategoryId,
+                                        onCategorySelected = onCategorySelected,
+                                        modifier = Modifier
+                                            .weight(0.34f)
+                                            .fillMaxSize()
+                                    )
+                                    ProductsGrid(
+                                        products = state.products,
+                                        cartQtyByProductId = state.cart.associate { it.productId to it.qty },
+                                        onProductTapped = onProductTapped,
+                                        onProductLongPressed = onProductLongPressed,
+                                        modifier = Modifier
+                                            .weight(0.66f)
+                                            .fillMaxSize()
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CategoriesRow(
+                                        categories = state.categories,
+                                        selectedId = state.selectedCategoryId,
+                                        onCategorySelected = onCategorySelected
+                                    )
+                                    ProductsGrid(
+                                        products = state.products,
+                                        cartQtyByProductId = state.cart.associate { it.productId to it.qty },
+                                        onProductTapped = onProductTapped,
+                                        onProductLongPressed = onProductLongPressed,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    if (state.showQtyDialog && state.qtyDialogProduct != null) {
-        QtyDialog(
-            product = state.qtyDialogProduct,
-            qty = state.qtyDialogQty,
-            isSubmitting = state.isSubmitting,
-            onQtyChanged = onQtyChanged,
-            onDismiss = onQtyDialogDismiss,
-            onAdd = onQtyDialogAdd
-        )
-    }
+        if (state.showQtyDialog && state.qtyDialogProduct != null) {
+            QtyDialog(
+                product = state.qtyDialogProduct,
+                qty = state.qtyDialogQty,
+                isSubmitting = state.isSubmitting,
+                onQtyChanged = onQtyChanged,
+                onDismiss = onQtyDialogDismiss,
+                onAdd = onQtyDialogAdd
+            )
+        }
 
-    if (state.showCartDialog) {
-        OrderReviewScreen(
-            tableName = state.tableName,
-            cart = state.cart,
-            subtotal = state.cartSubtotal,
-            isSubmitting = state.isSubmitting,
-            onBack = onCartDismiss,
-            onIncrease = onCartIncrease,
-            onDecrease = onCartDecrease,
-            onRemove = onCartRemove,
-            onSendRound = onSendRound
-        )
+        if (state.showCartDialog) {
+            OrderReviewScreen(
+                tableName = state.tableName,
+                cart = state.cart,
+                subtotal = state.cartSubtotal,
+                isSubmitting = state.isSubmitting,
+                onBack = onCartDismiss,
+                onIncrease = onCartIncrease,
+                onDecrease = onCartDecrease,
+                onRemove = onCartRemove,
+                onSendRound = onSendRound
+            )
+        }
+
+        if (state.isLoading || state.isSubmitting) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {}, onLongPress = {})
+                    }
+            )
+        }
     }
 }
 
@@ -300,11 +319,13 @@ private fun CategoryItem(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProductsGrid(
     products: List<AddItemViewModel.ProductUi>,
     cartQtyByProductId: Map<Long, Int>,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
+    onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyVerticalGrid(
@@ -318,7 +339,10 @@ private fun ProductsGrid(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onProductTapped(product) },
+                    .combinedClickable(
+                        onClick = { onProductTapped(product) },
+                        onLongClick = { onProductLongPressed(product) }
+                    ),
                 colors = CardDefaults.cardColors(
                     containerColor = if (orderedQty > 0) Color(0xFFE8F7E8) else MaterialTheme.colorScheme.surface
                 )

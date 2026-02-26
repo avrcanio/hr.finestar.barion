@@ -4,6 +4,7 @@ data class CheckItem(
     val itemId: Long? = null,
     val productId: Long? = null,
     val name: String,
+    val imageUrl: String? = null,
     val qty: Int,
     val price: Double,
     val lineType: String = "NORMAL",

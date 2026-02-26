@@ -4,15 +4,28 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import pos.finestar.barion.domain.model.CheckItem
+import pos.finestar.barion.domain.model.CheckRoundState
+import pos.finestar.barion.domain.model.CheckRoundStateItem
 import pos.finestar.barion.domain.model.CheckSession
+import pos.finestar.barion.domain.model.FiscalizeReceiptResult
+import pos.finestar.barion.domain.model.SettlementMethod
+import pos.finestar.barion.domain.model.SettlementPart
+import pos.finestar.barion.domain.model.SettlementPartStatus
+import pos.finestar.barion.domain.model.SettlementPrepareResult
+import pos.finestar.barion.domain.model.SettlementReceipt
+import pos.finestar.barion.domain.model.SettlementState
+import pos.finestar.barion.domain.model.SettlementSelection
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
 
 @Singleton
 class FakeCheckRepository @Inject constructor() : CheckRepository {
     private val checkIdGenerator = AtomicLong(3000L)
+    private val settlementIdGenerator = AtomicLong(10_000L)
     private val checksByTableId = mutableMapOf<Long, CheckSession>()
     private val itemIdGenerator = AtomicLong(1L)
+    private val receiptIdGenerator = AtomicLong(50_000L)
+    private val settlementPartsByCheck = mutableMapOf<Long, MutableMap<Long, SettlementPart>>()
 
     override suspend fun createCheck(tableId: Long): CheckSession {
         checksByTableId[tableId]?.let { return it }
@@ -171,5 +184,150 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
         val closed = current.copy(status = TableStatus.FREE, items = emptyList())
         checksByTableId[current.tableId] = closed
         return closed
+    }
+
+    override suspend fun prepareSettlementPart(
+        checkId: Long,
+        selections: List<SettlementSelection>,
+        amount: Double?,
+        method: SettlementMethod,
+        tipAmount: Double,
+        remainingTotal: Double?
+    ): SettlementPrepareResult {
+        val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        require(selections.isNotEmpty()) { "Odaberite barem jednu stavku." }
+        val selectedByItemId = selections.associateBy { it.checkItemId }
+        val calculatedAmount = current.items.asSequence()
+            .filter { it.itemId != null && it.itemId in selectedByItemId.keys }
+            .sumOf { item ->
+                val selectedQty = selectedByItemId[item.itemId]?.qty ?: 0
+                item.price * selectedQty
+            }
+        val resolvedAmount = amount ?: calculatedAmount
+        val created = SettlementPart(
+            partId = settlementIdGenerator.incrementAndGet(),
+            status = SettlementPartStatus.PREPARED,
+            amount = resolvedAmount,
+            tipAmount = 0.0,
+            totalCharged = resolvedAmount
+        )
+        val parts = settlementPartsByCheck.getOrPut(checkId) { mutableMapOf() }
+        parts[created.partId] = created
+        return SettlementPrepareResult(part = created)
+    }
+
+    override suspend fun paySettlementPartCash(
+        checkId: Long,
+        partId: Long,
+        amount: Double,
+        selections: List<SettlementSelection>
+    ): SettlementPart {
+        val part = settlementPartsByCheck[checkId]?.get(partId)
+            ?: throw IllegalArgumentException("Settlement part $partId not found")
+        val paid = part.copy(
+            method = SettlementMethod.CASH,
+            status = SettlementPartStatus.PAID,
+            amount = amount,
+            tipAmount = 0.0,
+            totalCharged = amount,
+            issuedReceiptId = receiptIdGenerator.incrementAndGet(),
+            receiptPdfUrl = "https://example.local/receipt/${receiptIdGenerator.get()}.pdf"
+        )
+        settlementPartsByCheck[checkId]?.set(partId, paid)
+        return paid
+    }
+
+    override suspend fun confirmSettlementPartCard(
+        checkId: Long,
+        partId: Long,
+        amount: Double,
+        tipAmount: Double,
+        approved: Boolean,
+        providerRef: String,
+        clientTransactionId: String
+    ): SettlementPart {
+        val part = settlementPartsByCheck[checkId]?.get(partId)
+            ?: throw IllegalArgumentException("Settlement part $partId not found")
+        val status = if (approved) SettlementPartStatus.PAID else SettlementPartStatus.FAILED
+        val updated = part.copy(
+            method = SettlementMethod.CARD,
+            status = status,
+            amount = amount,
+            tipAmount = tipAmount,
+            totalCharged = amount + tipAmount,
+            providerRef = providerRef
+        )
+        settlementPartsByCheck[checkId]?.set(partId, updated)
+        return updated
+    }
+
+    override suspend fun getSettlementState(checkId: Long): SettlementState {
+        val check = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val latestReceipt = settlementPartsByCheck[checkId]
+            ?.values
+            ?.lastOrNull { it.issuedReceiptId != null }
+        return SettlementState(
+            checkStatus = check.status.name,
+            paymentStatus = null,
+            settlementStatus = null,
+            remainingTotal = null,
+            canIssueReceipt = null,
+            issuedReceiptId = latestReceipt?.issuedReceiptId,
+            receiptPdfUrl = latestReceipt?.receiptPdfUrl
+        )
+    }
+
+    override suspend fun getCheckRoundState(checkId: Long): CheckRoundState {
+        val check = checksByTableId.values.firstOrNull { it.checkId == checkId }
+            ?: throw IllegalArgumentException("Check $checkId not found")
+        val items = check.items.map { item ->
+            CheckRoundStateItem(
+                id = item.itemId ?: 0L,
+                checkId = checkId,
+                artiklId = item.productId,
+                name = item.name,
+                roundNumber = item.roundNumber,
+                sourceQuantity = kotlin.math.abs(item.qty),
+                soldQuantity = 0.0,
+                stornoQuantity = 0.0,
+                gratisQuantity = 0.0,
+                otpisQuantity = 0.0,
+                remainingQuantity = kotlin.math.abs(item.qty),
+                strikeMain = false,
+                paidLine = null
+            )
+        }
+        return CheckRoundState(
+            checkId = checkId,
+            status = check.status.name,
+            items = items,
+            updatedAt = null
+        )
+    }
+
+    override suspend fun fiscalizeReceipt(checkId: Long, receiptId: Long): FiscalizeReceiptResult {
+        return FiscalizeReceiptResult(
+            checkId = checkId,
+            receiptId = receiptId,
+            action = "fiscalized",
+            status = "fiscalized",
+            receiptNumber = receiptId.toInt(),
+            totalAmount = null,
+            zki = "fake-zki",
+            jir = "fake-jir",
+            qr = null,
+            pdfUrl = "https://example.local/receipt/$receiptId.pdf",
+            receipts = listOf(
+                SettlementReceipt(
+                    id = receiptId,
+                    receiptNumber = receiptId.toInt(),
+                    totalAmount = null,
+                    status = "fiscalized",
+                    pdfUrl = "https://example.local/receipt/$receiptId.pdf"
+                )
+            )
+        )
     }
 }

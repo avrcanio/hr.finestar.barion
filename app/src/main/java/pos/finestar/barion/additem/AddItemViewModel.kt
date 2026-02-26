@@ -110,6 +110,10 @@ class AddItemViewModel @Inject constructor(
     }
 
     fun onProductTapped(product: ProductUi) {
+        addProductToCart(product = product, qty = 1)
+    }
+
+    fun onProductLongPressed(product: ProductUi) {
         _uiState.update {
             it.copy(
                 showQtyDialog = true,
@@ -134,6 +138,18 @@ class AddItemViewModel @Inject constructor(
     fun onQtyDialogAdd() {
         val product = _uiState.value.qtyDialogProduct ?: return
         val qty = _uiState.value.qtyDialogQty
+        addProductToCart(product = product, qty = qty)
+        _uiState.update {
+            it.copy(
+                showQtyDialog = false,
+                qtyDialogProduct = null,
+                qtyDialogQty = 1
+            )
+        }
+    }
+
+    private fun addProductToCart(product: ProductUi, qty: Int) {
+        if (qty <= 0) return
 
         _uiState.update { state ->
             val existing = state.cart.firstOrNull { it.productId == product.id }
@@ -153,9 +169,6 @@ class AddItemViewModel @Inject constructor(
 
             state.copy(
                 cart = updatedCart,
-                showQtyDialog = false,
-                qtyDialogProduct = null,
-                qtyDialogQty = 1,
                 message = "Dodano u košaricu: ${product.name} x$qty"
             )
         }

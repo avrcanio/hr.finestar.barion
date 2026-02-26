@@ -43,6 +43,12 @@ Pregledano je svih 31 issue-a.
   - modal za količinu,
   - košarica + slanje runde.
 - FREE flow: kad je total `0.00`, gumb `Naplata` postaje `Free` i zatvara check bez PIN-a.
+- Payment Sprint 1:
+  - izbor `Kompletna naplata` vs `Naplati dio (Split)`,
+  - split wizard s remaining qty guardovima,
+  - split summary s part statusima (`PREPARED/PAID/FAILED`),
+  - per-part pay (`Gotovina` / `Kartica` confirm),
+  - close check guard tek kad su svi partovi plaćeni i remaining qty = 0.
 - Splash screen s prilagođenim brendom.
 
 ## API endpointi koje Android koristi
@@ -80,6 +86,16 @@ Pregledano je svih 31 issue-a.
 - `POST /api/pos/checks/{check_id}/send-to-bar/`
 - `POST /api/pos/checks/{check_id}/close/`
 - `POST /api/pos/checks/{check_id}/issue-receipt/`
+
+### Settlement (Payment Sprint 1)
+
+- `POST /api/pos/checks/{check_id}/settlements/parts/prepare/`
+- `POST /api/pos/checks/{check_id}/settlements/parts/{part_id}/pay-cash/`
+- `POST /api/pos/checks/{check_id}/settlements/parts/{part_id}/pay-card/confirm/`
+
+Cash contract napomena:
+- `prepare` može i bez body-a (backend auto full CASH part).
+- `pay-cash` trenutno backend očekuje i na `part_id=0` za auto-finalize cash flow.
 
 ## Cache i performanse (implementirano)
 
@@ -153,6 +169,10 @@ Napomena:
 
 - `#25`: finalizirati preostali security checklist za sensitive akcije (policy/per-role coverage).
 - `#29`: backend multi-layout access policy (user assignments/default/fallback) i dodatno poravnanje UX ponašanja.
+- Payment Sprint 2:
+  - tip UX (`0/5/10/custom`) i card tip calculation,
+  - Viva callback hardening + retry UX,
+  - full UAT scenariji za approved/declined/retry.
 
 ---
 

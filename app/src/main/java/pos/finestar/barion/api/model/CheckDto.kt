@@ -59,6 +59,57 @@ data class IssueReceiptRequestDto(
     val fiscalize: Boolean = true
 )
 
+data class SettlementPreparePartDto(
+    @SerializedName("method")
+    val method: String,
+    @SerializedName("amount")
+    val amount: String,
+    @SerializedName("tip_amount")
+    val tipAmount: String? = null
+)
+
+data class SettlementPrepareRequestDto(
+    @SerializedName("parts")
+    val parts: List<SettlementPreparePartDto>
+)
+
+data class SettlementPayCashItemDto(
+    @SerializedName("item_id")
+    val itemId: Long,
+    @SerializedName("quantity")
+    val quantity: String
+)
+
+data class SettlementPayCashRequestDto(
+    @SerializedName("amount")
+    val amount: String? = null,
+    @SerializedName("items")
+    val items: List<SettlementPayCashItemDto>? = null,
+    @SerializedName("currency")
+    val currency: String = "EUR"
+)
+
+data class SettlementPayCardConfirmRequestDto(
+    @SerializedName("provider")
+    val provider: String = "VIVA",
+    @SerializedName("approved")
+    val approved: Boolean,
+    @SerializedName("provider_ref")
+    val providerRef: String,
+    @SerializedName("external_txn_id")
+    val externalTxnId: String? = null,
+    @SerializedName("client_transaction_id")
+    val clientTransactionId: String,
+    @SerializedName("amount")
+    val amount: String,
+    @SerializedName("tip_amount")
+    val tipAmount: String = "0.00",
+    @SerializedName("issue_receipt")
+    val issueReceipt: Boolean? = null,
+    @SerializedName("currency")
+    val currency: String = "EUR"
+)
+
 data class TableStatusDto(
     @SerializedName("table_id")
     val tableId: Long,

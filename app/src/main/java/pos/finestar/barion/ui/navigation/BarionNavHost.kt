@@ -21,6 +21,8 @@ import pos.finestar.barion.check.CheckScreen
 import pos.finestar.barion.check.CheckViewModel
 import pos.finestar.barion.floorplan.FloorPlanScreen
 import pos.finestar.barion.floorplan.FloorPlanViewModel
+import pos.finestar.barion.partial.PartialPaymentScreen
+import pos.finestar.barion.partial.PartialPaymentViewModel
 
 @Composable
 fun BarionNavHost() {
@@ -137,9 +139,32 @@ fun BarionNavHost() {
                 onConfirmOtpis = vm::onConfirmOtpis,
                 onFree = vm::onFree,
                 onPay = vm::onPay,
-                onPayPinChanged = vm::onPayPinChanged,
-                onPayPinDismiss = vm::onPayPinDismiss,
-                onConfirmPay = vm::onConfirmPay,
+                onDismissPaymentChoice = vm::onDismissPaymentChoice,
+                onStartFullPayment = vm::onStartFullPayment,
+                onStartSplitPayment = {
+                    vm.onDismissPaymentChoice()
+                    navController.navigate(
+                        NavRoutes.partialPaymentRoute(
+                            checkId = uiState.value.checkId,
+                            tableName = uiState.value.tableName
+                        )
+                    )
+                },
+                onDismissSplitDialog = vm::onDismissSplitDialog,
+                onSplitQtyIncrease = vm::onSplitQtyIncrease,
+                onSplitQtyDecrease = vm::onSplitQtyDecrease,
+                onSplitNext = vm::onSplitNext,
+                onSplitPayNow = vm::onSplitPayNow,
+                onSplitShowSummary = vm::onSplitShowSummary,
+                onSplitPayPart = vm::onSplitPayPart,
+                onSplitCloseCheck = vm::onSplitCloseCheck,
+                onDismissMethodDialog = vm::onDismissMethodDialog,
+                onChooseCash = vm::onChooseCash,
+                onChooseCard = vm::onChooseCard,
+                onStartFiscalizeReceipt = vm::onStartFiscalizeReceipt,
+                onDismissFiscalizeDialog = vm::onDismissFiscalizeDialog,
+                onFiscalizePinChanged = vm::onFiscalizePinChanged,
+                onConfirmFiscalizeReceipt = vm::onConfirmFiscalizeReceipt,
                 onMessageShown = vm::onMessageShown
             )
 
@@ -183,6 +208,7 @@ fun BarionNavHost() {
                 onQueryChanged = vm::onQueryChanged,
                 onCategorySelected = vm::onCategorySelected,
                 onProductTapped = vm::onProductTapped,
+                onProductLongPressed = vm::onProductLongPressed,
                 onQtyChanged = vm::onQtyChanged,
                 onQtyDialogDismiss = vm::onQtyDialogDismiss,
                 onQtyDialogAdd = vm::onQtyDialogAdd,
@@ -192,6 +218,31 @@ fun BarionNavHost() {
                 onCartDecrease = vm::onCartDecrease,
                 onCartRemove = vm::onCartRemove,
                 onSendRound = vm::onSendRound,
+                onMessageShown = vm::onMessageShown
+            )
+        }
+
+        composable(
+            route = NavRoutes.partialPaymentRoutePattern,
+            arguments = listOf(
+                navArgument(NavRoutes.ARG_CHECK_ID) { type = NavType.LongType },
+                navArgument(NavRoutes.ARG_TABLE_NAME) { type = NavType.StringType }
+            )
+        ) {
+            val vm: PartialPaymentViewModel = hiltViewModel()
+            val uiState = vm.uiState.collectAsStateWithLifecycle()
+
+            PartialPaymentScreen(
+                state = uiState.value,
+                onBack = { navController.popBackStack() },
+                onRefresh = vm::refresh,
+                onToggleRound = vm::onToggleRound,
+                onIncrease = vm::onIncrease,
+                onDecrease = vm::onDecrease,
+                onPay = vm::onPay,
+                onDismissMethodDialog = vm::onDismissMethodDialog,
+                onPayCash = vm::onPayCash,
+                onPayCard = vm::onPayCard,
                 onMessageShown = vm::onMessageShown
             )
         }

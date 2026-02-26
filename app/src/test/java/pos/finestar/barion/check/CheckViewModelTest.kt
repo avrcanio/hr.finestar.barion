@@ -19,9 +19,12 @@ import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetCheckByIdUseCase
 import pos.finestar.barion.domain.usecase.GratisCheckItemUseCase
-import pos.finestar.barion.domain.usecase.IssueReceiptUseCase
 import pos.finestar.barion.domain.usecase.CloseCheckUseCase
+import pos.finestar.barion.domain.usecase.ConfirmSettlementPartCardUseCase
+import pos.finestar.barion.domain.usecase.GetSettlementStateUseCase
 import pos.finestar.barion.domain.usecase.OtpisCheckItemUseCase
+import pos.finestar.barion.domain.usecase.PaySettlementPartCashUseCase
+import pos.finestar.barion.domain.usecase.PrepareSettlementPartUseCase
 import pos.finestar.barion.domain.usecase.RemoveItemFromCheckUseCase
 import pos.finestar.barion.domain.usecase.SendToBarUseCase
 import pos.finestar.barion.domain.usecase.StornoCheckItemUseCase
@@ -93,7 +96,10 @@ class CheckViewModelTest {
             otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
             closeCheckUseCase = CloseCheckUseCase(repository),
             sendToBarUseCase = SendToBarUseCase(repository),
-            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
+            paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
+            confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            getSettlementStateUseCase = GetSettlementStateUseCase(repository),
             authRepository = authRepository
         )
 
@@ -147,7 +153,10 @@ class CheckViewModelTest {
             otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
             closeCheckUseCase = CloseCheckUseCase(repository),
             sendToBarUseCase = SendToBarUseCase(repository),
-            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
+            paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
+            confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            getSettlementStateUseCase = GetSettlementStateUseCase(repository),
             authRepository = authRepository
         )
 
@@ -209,7 +218,10 @@ class CheckViewModelTest {
             otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
             closeCheckUseCase = CloseCheckUseCase(repository),
             sendToBarUseCase = SendToBarUseCase(repository),
-            issueReceiptUseCase = IssueReceiptUseCase(repository),
+            prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
+            paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
+            confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            getSettlementStateUseCase = GetSettlementStateUseCase(repository),
             authRepository = authRepository
         )
 

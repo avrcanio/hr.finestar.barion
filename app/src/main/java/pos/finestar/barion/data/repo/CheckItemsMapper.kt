@@ -3,6 +3,7 @@ package pos.finestar.barion.data.repo
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import pos.finestar.barion.BuildConfig
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.TableStatus
@@ -34,6 +35,13 @@ object CheckItemsMapper {
                     ?: item.getInt("quantity")
                     ?: item.getDouble("quantity")?.toInt()
                     ?: 1
+                val imageUrl = normalizeImageUrl(
+                    item.getString("image_46x75")
+                        ?: item.getString("image")
+                        ?: item.getString("image_url")
+                        ?: item.getObject("product")?.getString("image_46x75")
+                        ?: item.getObject("product")?.getString("image")
+                )
                 val price = item.getDouble("unit_price")
                     ?: item.getDouble("price")
                     ?: item.getDouble("line_total")
@@ -52,6 +60,7 @@ object CheckItemsMapper {
                     itemId = itemId,
                     productId = productId,
                     name = name,
+                    imageUrl = imageUrl,
                     qty = qty,
                     price = price,
                     lineType = lineType,
@@ -160,4 +169,13 @@ object CheckItemsMapper {
             else -> null
         }
     }.getOrNull()
+
+    private fun normalizeImageUrl(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        if (raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true)) {
+            return raw
+        }
+        val base = BuildConfig.BARION_API_BASE_URL.trimEnd('/')
+        return if (raw.startsWith("/")) "$base$raw" else "$base/$raw"
+    }
 }

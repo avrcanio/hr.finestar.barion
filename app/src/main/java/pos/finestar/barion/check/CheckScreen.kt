@@ -1,8 +1,12 @@
 package pos.finestar.barion.check
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +19,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,11 +47,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardOptions
+import java.util.Locale
+import pos.finestar.barion.BuildConfig
+import pos.finestar.barion.ReceiptPdfActivity
 import pos.finestar.barion.domain.model.CheckItem
+import pos.finestar.barion.domain.model.SettlementReceipt
+import pos.finestar.barion.domain.model.SettlementPartStatus
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -62,12 +75,28 @@ fun CheckScreen(
     onConfirmOtpis: () -> Unit,
     onFree: () -> Unit,
     onPay: () -> Unit,
-    onPayPinChanged: (String) -> Unit,
-    onPayPinDismiss: () -> Unit,
-    onConfirmPay: () -> Unit,
+    onDismissPaymentChoice: () -> Unit,
+    onStartFullPayment: () -> Unit,
+    onStartSplitPayment: () -> Unit,
+    onDismissSplitDialog: () -> Unit,
+    onSplitQtyIncrease: (Long) -> Unit,
+    onSplitQtyDecrease: (Long) -> Unit,
+    onSplitNext: () -> Unit,
+    onSplitPayNow: () -> Unit,
+    onSplitShowSummary: () -> Unit,
+    onSplitPayPart: (Long) -> Unit,
+    onSplitCloseCheck: () -> Unit,
+    onDismissMethodDialog: () -> Unit,
+    onChooseCash: () -> Unit,
+    onChooseCard: () -> Unit,
+    onStartFiscalizeReceipt: (Long) -> Unit,
+    onDismissFiscalizeDialog: () -> Unit,
+    onFiscalizePinChanged: (String) -> Unit,
+    onConfirmFiscalizeReceipt: () -> Unit,
     onMessageShown: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     LaunchedEffect(state.message) {
         val message = state.message
@@ -122,8 +151,10 @@ fun CheckScreen(
                     Button(
                         onClick = if (isZeroTotal) onFree else onPay,
                         modifier = Modifier.weight(1f),
-                        enabled = !state.isLoading && !state.isMutating && state.items.isNotEmpty()
-                        ,
+                        enabled = !state.isLoading &&
+                            !state.isMutating &&
+                            state.items.isNotEmpty() &&
+                            !state.settlementCompleted,
                         colors = if (isZeroTotal) {
                             ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF7BC67B),
@@ -139,63 +170,112 @@ fun CheckScreen(
             }
         }
     ) { padding ->
-        when {
-            state.isLoading -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
+        Box(modifier = Modifier.fillMaxSize()) {
+            when {
+                state.isLoading -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                state.error != null -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(horizontal = 12.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = state.error, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                else -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(horizontal = 12.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = "Check #${state.checkId}", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ItemsList(
+                            items = state.items,
+                            remainingByItemId = state.settlementRemainingByItemId,
+                            roundStateByItemId = state.roundStateByItemId,
+                            openSubtotal = state.settlementOpenSubtotal,
+                            openTax = state.settlementOpenTax,
+                            openTotal = state.settlementOpenTotal,
+                            receipts = state.settlementReceipts,
+                            onOpenReceiptPdf = { pdfUrl ->
+                                val normalizedPdfUrl = pdfUrl.normalizeReceiptUrl() ?: return@ItemsList
+                                runCatching {
+                                    context.startActivity(
+                                        ReceiptPdfActivity.createIntent(context, normalizedPdfUrl).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                    )
+                                }
+                            },
+                            onStartFiscalizeReceipt = onStartFiscalizeReceipt,
+                            onItemLongPress = onItemLongPress,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
 
-            state.error != null -> {
-                Column(
+            if (state.isLoading || state.isMutating) {
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(text = state.error, style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 12.dp)
-                ) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Check #${state.checkId}", style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ItemsList(
-                        items = state.items,
-                        subtotal = state.subtotal,
-                        tax = state.tax,
-                        total = state.total,
-                        onItemLongPress = onItemLongPress,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = {}, onLongPress = {})
+                        }
+                )
             }
         }
     }
 
-    if (state.showPayPinDialog) {
-        PayPinDialog(
-            pin = state.payPin,
-            error = state.payPinError,
-            isSubmitting = state.isMutating,
-            onPinChanged = onPayPinChanged,
-            onDismiss = onPayPinDismiss,
-            onConfirm = onConfirmPay
+    if (state.paymentFlow.showChoiceDialog) {
+        PaymentChoiceDialog(
+            canSplitPayment = state.paymentFlow.canSplitPayment,
+            onDismiss = onDismissPaymentChoice,
+            onFullPayment = onStartFullPayment,
+            onSplitPayment = onStartSplitPayment
+        )
+    }
+
+    if (state.paymentFlow.showSplitDialog) {
+        SplitFlowDialog(
+            state = state,
+            onDismiss = onDismissSplitDialog,
+            onSplitQtyIncrease = onSplitQtyIncrease,
+            onSplitQtyDecrease = onSplitQtyDecrease,
+            onSplitNext = onSplitNext,
+            onSplitPayNow = onSplitPayNow,
+            onSplitShowSummary = onSplitShowSummary,
+            onSplitPayPart = onSplitPayPart,
+            onSplitCloseCheck = onSplitCloseCheck
+        )
+    }
+
+    if (state.paymentFlow.showMethodDialog) {
+        PaymentMethodDialog(
+            targetLabel = state.paymentFlow.methodTargetLabel,
+            amount = state.paymentFlow.methodTargetAmount,
+            onDismiss = onDismissMethodDialog,
+            onCash = onChooseCash,
+            onCard = onChooseCard,
+            isSubmitting = state.isMutating
         )
     }
 
@@ -214,6 +294,224 @@ fun CheckScreen(
             maxQty = state.actionMaxQty
         )
     }
+
+    if (state.showFiscalizeDialog && state.fiscalizeReceiptId != null) {
+        AlertDialog(
+            onDismissRequest = onDismissFiscalizeDialog,
+            title = { Text("Fiskaliziraj račun #${state.fiscalizeReceiptId}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Unesite PIN za potvrdu fiskalizacije.")
+                    OutlinedTextField(
+                        value = state.fiscalizePin,
+                        onValueChange = onFiscalizePinChanged,
+                        label = { Text("PIN") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        singleLine = true,
+                        enabled = !state.isMutating
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = onConfirmFiscalizeReceipt, enabled = !state.isMutating) {
+                    Text("Fiskaliziraj račun")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissFiscalizeDialog, enabled = !state.isMutating) {
+                    Text("Odustani")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PaymentChoiceDialog(
+    canSplitPayment: Boolean,
+    onDismiss: () -> Unit,
+    onFullPayment: () -> Unit,
+    onSplitPayment: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Odabir naplate") },
+        text = { Text("Odaberite način naplate računa.") },
+        confirmButton = {
+            Button(onClick = onFullPayment) {
+                Text("Kompletna naplata")
+            }
+        },
+        dismissButton = {
+            if (canSplitPayment) {
+                TextButton(onClick = onSplitPayment) {
+                    Text("Naplati dio (Split)")
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text("Odustani")
+                }
+            }
+        }
+    )
+}
+
+private fun String?.normalizeReceiptUrl(): String? {
+    val raw = this?.trim().orEmpty()
+    if (raw.isBlank()) return null
+    return when {
+        raw.startsWith("http://", ignoreCase = true) || raw.startsWith("https://", ignoreCase = true) -> raw
+        raw.startsWith("/") -> BuildConfig.BARION_API_BASE_URL.trimEnd('/') + raw
+        else -> BuildConfig.BARION_API_BASE_URL.trimEnd('/') + "/" + raw
+    }
+}
+
+@Composable
+private fun PaymentMethodDialog(
+    targetLabel: String,
+    amount: Double,
+    onDismiss: () -> Unit,
+    onCash: () -> Unit,
+    onCard: () -> Unit,
+    isSubmitting: Boolean
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$targetLabel · način plaćanja") },
+        text = {
+            Text("Iznos: ${"%.2f".format(amount)} EUR")
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onCash, enabled = !isSubmitting) {
+                    Text("Gotovina")
+                }
+                Button(onClick = onCard, enabled = !isSubmitting) {
+                    Text("Kartica")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSubmitting) {
+                Text("Odustani")
+            }
+        }
+    )
+}
+
+@Composable
+private fun SplitFlowDialog(
+    state: CheckViewModel.UiState,
+    onDismiss: () -> Unit,
+    onSplitQtyIncrease: (Long) -> Unit,
+    onSplitQtyDecrease: (Long) -> Unit,
+    onSplitNext: () -> Unit,
+    onSplitPayNow: () -> Unit,
+    onSplitShowSummary: () -> Unit,
+    onSplitPayPart: (Long) -> Unit,
+    onSplitCloseCheck: () -> Unit
+) {
+    val flow = state.paymentFlow
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(if (flow.isSplitSummary) "Split summary" else "Split #${flow.splitStepIndex}")
+        },
+        text = {
+            if (flow.isSplitSummary) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (flow.splitParts.isEmpty()) {
+                        Text("Nema kreiranih partova.")
+                    } else {
+                        flow.splitParts.forEach { part ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("${part.label}: ${"%.2f".format(part.amount)} EUR")
+                                        Text("Status: ${part.status}")
+                                    }
+                                    if (part.status != SettlementPartStatus.PAID) {
+                                        TextButton(onClick = { onSplitPayPart(part.partId) }) {
+                                            Text("Plati")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text("Preostali qty: ${flow.totalRemainingQty}")
+                }
+            } else {
+                val lines = flow.payableItems.filter { it.remainingQty > 0 }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (lines.isEmpty()) {
+                        Text("Nema više preostalih stavki. Otvorite summary.")
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.height(280.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(lines) { item ->
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(item.name, style = MaterialTheme.typography.titleSmall)
+                                        Text("Cijena: ${"%.2f".format(item.price)} EUR · Remaining: ${item.remainingQty}")
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(onClick = { onSplitQtyDecrease(item.checkItemId) }, enabled = item.selectedQty > 0) {
+                                                Text("-")
+                                            }
+                                            Text("Za naplatu: ${item.selectedQty}")
+                                            TextButton(
+                                                onClick = { onSplitQtyIncrease(item.checkItemId) },
+                                                enabled = item.selectedQty < item.remainingQty
+                                            ) {
+                                                Text("+")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onSplitPayNow, enabled = flow.hasSelection && !state.isMutating) {
+                            Text("Plati sada")
+                        }
+                        TextButton(onClick = onSplitShowSummary, enabled = flow.splitParts.isNotEmpty()) {
+                            Text("Summary")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (flow.isSplitSummary) {
+                Button(onClick = onSplitCloseCheck, enabled = flow.canCloseCheck && !state.isMutating) {
+                    Text("Close check")
+                }
+            } else {
+                Button(onClick = onSplitNext, enabled = flow.hasSelection && !state.isMutating) {
+                    Text("Next")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !state.isMutating) {
+                Text("Zatvori")
+            }
+        }
+    )
 }
 
 @Composable
@@ -257,9 +555,14 @@ private fun TotalsRow(label: String, value: Double, emphasize: Boolean = false) 
 @Composable
 private fun ItemsList(
     items: List<CheckItem>,
-    subtotal: Double,
-    tax: Double,
-    total: Double,
+    remainingByItemId: Map<Long, Int>,
+    roundStateByItemId: Map<Long, CheckViewModel.RoundStateUi>,
+    openSubtotal: Double?,
+    openTax: Double?,
+    openTotal: Double?,
+    receipts: List<SettlementReceipt>,
+    onOpenReceiptPdf: (String) -> Unit,
+    onStartFiscalizeReceipt: (Long) -> Unit,
     onItemLongPress: (CheckItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -273,30 +576,38 @@ private fun ItemsList(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         roundSections.forEach { (roundNumber, roundItems) ->
-            val orderedRoundItems = orderRoundItems(roundItems)
+            val displayCards = buildRoundDisplayCards(
+                roundItems = roundItems,
+                remainingByItemId = remainingByItemId,
+                roundStateByItemId = roundStateByItemId
+            )
             item {
-                Text(
-                    text = if (roundNumber == null) "NEW (nije poslano)" else "Runda R$roundNumber",
-                    style = MaterialTheme.typography.titleSmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (roundNumber == null) "NEW (nije poslano)" else "Runda R$roundNumber",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                }
             }
 
-            items(orderedRoundItems) { item ->
-                val originalIsStorned =
-                    item.lineType.equals("NORMAL", ignoreCase = true) &&
-                        hasStornoForItem(item, roundItems)
+            items(displayCards) { card ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .combinedClickable(
                             onClick = {},
-                            onLongClick = { onItemLongPress(item) }
+                            onLongClick = { card.sourceItem?.let(onItemLongPress) }
                         ),
                     colors = CardDefaults.cardColors(
-                        containerColor = when (item.lineType.uppercase()) {
+                        containerColor = when (card.lineType.uppercase()) {
                             "STORNO" -> Color(0xFFFFE5E5)
                             "GRATIS" -> Color(0xFFE8F7E8)
                             "OTPIS" -> Color(0xFFFFF1E0)
+                            "PAID" -> paidLineColor(card.uiColor)
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         }
                     )
@@ -312,18 +623,19 @@ private fun ItemsList(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = item.name,
+                                text = card.name,
                                 style = MaterialTheme.typography.bodyLarge,
-                                textDecoration = if (originalIsStorned) {
-                                    TextDecoration.LineThrough
-                                } else {
-                                    null
-                                }
+                                textDecoration = if (card.strikeMain) TextDecoration.LineThrough else null
                             )
-                            if (item.lineType != "NORMAL") {
+                            if (card.lineType != "NORMAL") {
                                 Text(
-                                    text = item.lineType,
+                                    text = card.lineType,
                                     style = MaterialTheme.typography.labelMedium
+                                )
+                            } else if (card.isFullyPaid || card.isPartialPaid) {
+                                PaymentStatusIndicator(
+                                    isFullyPaid = card.isFullyPaid,
+                                    modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
                         }
@@ -332,86 +644,226 @@ private fun ItemsList(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Količina: ${item.qty}x", style = MaterialTheme.typography.bodySmall)
-                            Text("Cijena: ${"%.2f".format(item.price)} EUR", style = MaterialTheme.typography.bodySmall)
-                            Text("Ukupno: ${"%.2f".format(item.qty * item.price)} EUR", style = MaterialTheme.typography.bodySmall)
+                            Text("Količina: ${formatQty(card.qty)}", style = MaterialTheme.typography.bodySmall)
+                            Text("Cijena: ${"%.2f".format(card.price)} EUR", style = MaterialTheme.typography.bodySmall)
+                            Text("Ukupno: ${"%.2f".format(card.total)} EUR", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
             }
 
+        }
+
+        if (openSubtotal != null && openTax != null && openTotal != null) {
             item {
-                TotalsRow(
-                    label = if (roundNumber == null) "Total NEW" else "Total R$roundNumber",
-                    value = roundItems.sumOf { it.qty * it.price },
-                    emphasize = true
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Otvoreno za platiti", style = MaterialTheme.typography.titleSmall)
+            }
+            item {
+                TotalsBlock(
+                    subtotal = openSubtotal,
+                    tax = openTax,
+                    total = openTotal
                 )
             }
         }
 
-        item {
-            TotalsBlock(
-                subtotal = subtotal,
-                tax = tax,
-                total = total
-            )
-        }
-    }
-}
-
-private fun orderRoundItems(items: List<CheckItem>): List<CheckItem> {
-    if (items.isEmpty()) return items
-    val byId = items.associateBy { it.itemId }
-    val stornoByTargetId = items
-        .asSequence()
-        .filter { it.lineType.equals("STORNO", ignoreCase = true) }
-        .mapNotNull { storno -> parseActionTargetId(storno.note)?.let { targetId -> targetId to storno } }
-        .groupBy({ it.first }, { it.second })
-
-    val ordered = mutableListOf<CheckItem>()
-    val addedIds = mutableSetOf<Long>()
-    val addedAnonymous = mutableSetOf<CheckItem>()
-
-    items.forEach { item ->
-        val id = item.itemId
-        if (id != null && id in addedIds) return@forEach
-        if (id == null && item in addedAnonymous) return@forEach
-
-        ordered += item
-        if (id != null) addedIds += id else addedAnonymous += item
-
-        if (item.lineType.equals("NORMAL", ignoreCase = true) && id != null) {
-            val linkedStornos = stornoByTargetId[id].orEmpty()
-            linkedStornos.forEach { storno ->
-                val stornoId = storno.itemId
-                if (stornoId != null) {
-                    if (stornoId !in addedIds) {
-                        ordered += storno
-                        addedIds += stornoId
+        if (receipts.isNotEmpty()) {
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Plaćeni računi", style = MaterialTheme.typography.titleSmall)
+            }
+            items(receipts.sortedByDescending { it.id }) { receipt ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val number = receipt.receiptNumber ?: receipt.id.toInt()
+                        val amountText = receipt.totalAmount?.let { " · ${"%.2f".format(it)} EUR" }.orEmpty()
+                        val statusText = receipt.status?.replace('_', ' ')?.uppercase(Locale.US).orEmpty()
+                        val normalizedPdfUrl = receipt.pdfUrl.normalizeReceiptUrl()
+                        Text("Račun #$number$amountText")
+                        if (statusText.isNotBlank()) {
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (receipt.status.equals("fiscalized", ignoreCase = true)) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!receipt.status.equals("fiscalized", ignoreCase = true)) {
+                                TextButton(onClick = { onStartFiscalizeReceipt(receipt.id) }) {
+                                    Text("Fiskaliziraj račun", textAlign = TextAlign.End)
+                                }
+                            }
+                            if (!normalizedPdfUrl.isNullOrBlank()) {
+                                TextButton(onClick = { onOpenReceiptPdf(normalizedPdfUrl) }) {
+                                    Text("PDF")
+                                }
+                            } else if (receipt.status.equals("fiscalized", ignoreCase = true)) {
+                                Text(
+                                    text = "Nema PDF",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (normalizedPdfUrl.isNullOrBlank() && !receipt.status.equals("fiscalized", ignoreCase = true)) {
+                            Text(
+                                text = "Nema PDF",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                } else if (storno !in addedAnonymous) {
-                    ordered += storno
-                    addedAnonymous += storno
                 }
             }
         }
     }
-
-    return ordered
 }
 
-private fun hasStornoForItem(item: CheckItem, inItems: List<CheckItem>): Boolean {
-    val itemId = item.itemId ?: return false
-    return inItems.any { candidate ->
-        candidate.lineType.equals("STORNO", ignoreCase = true) &&
-            parseActionTargetId(candidate.note) == itemId
+@Composable
+private fun paidLineColor(uiColor: String?): Color {
+    return when (uiColor?.lowercase()) {
+        "light_blue" -> Color(0xFFE3F2FD)
+        else -> Color(0xFFE3F2FD)
     }
 }
 
-private fun parseActionTargetId(note: String?): Long? {
-    if (note.isNullOrBlank()) return null
-    val pattern = Regex("""\[(?:storno|otpis)_of:(\d+)]""", RegexOption.IGNORE_CASE)
-    return pattern.find(note)?.groupValues?.getOrNull(1)?.toLongOrNull()
+private data class DisplayCard(
+    val sourceItem: CheckItem? = null,
+    val lineType: String,
+    val name: String,
+    val qty: Double,
+    val price: Double,
+    val total: Double,
+    val strikeMain: Boolean = false,
+    val isFullyPaid: Boolean = false,
+    val isPartialPaid: Boolean = false,
+    val uiColor: String? = null
+)
+
+private data class ActionGroupKey(
+    val lineType: String,
+    val name: String,
+    val price: Double
+)
+
+private fun buildRoundDisplayCards(
+    roundItems: List<CheckItem>,
+    remainingByItemId: Map<Long, Int>,
+    roundStateByItemId: Map<Long, CheckViewModel.RoundStateUi>
+): List<DisplayCard> {
+    val normalCards = roundItems
+        .filter { it.lineType.equals("NORMAL", ignoreCase = true) }
+        .flatMap { item ->
+            val roundState = item.itemId?.let { roundStateByItemId[it] }
+            val sourceQty = roundState?.sourceQuantity ?: item.qty
+            val remainingQty = roundState?.remainingQuantity ?: item.itemId?.let { remainingByItemId[it] }
+            val isFullyPaid = remainingQty == 0
+            val isPartialPaid = remainingQty != null && remainingQty in 1 until sourceQty
+            val mainCard = DisplayCard(
+                sourceItem = item,
+                lineType = "NORMAL",
+                name = item.name,
+                qty = sourceQty.toDouble(),
+                price = item.price,
+                total = sourceQty * item.price,
+                strikeMain = roundState?.strikeMain == true || isFullyPaid,
+                isFullyPaid = isFullyPaid,
+                isPartialPaid = isPartialPaid
+            )
+            val paidCard = roundState?.paidLine?.let { paid ->
+                DisplayCard(
+                    lineType = paid.lineType,
+                    name = item.name,
+                    qty = paid.quantity,
+                    price = paid.unitPrice,
+                    total = paid.totalAmount,
+                    uiColor = paid.uiColor
+                )
+            }
+            listOfNotNull(mainCard, paidCard)
+        }
+
+    val actionCards = roundItems
+        .filter {
+            it.lineType.equals("STORNO", ignoreCase = true) ||
+                it.lineType.equals("GRATIS", ignoreCase = true) ||
+                it.lineType.equals("OTPIS", ignoreCase = true)
+        }
+        .groupBy { action ->
+            ActionGroupKey(
+                lineType = action.lineType.uppercase(Locale.US),
+                name = action.name,
+                price = action.price
+            )
+        }
+        .map { (key, grouped) ->
+            DisplayCard(
+                lineType = key.lineType,
+                name = key.name,
+                qty = grouped.sumOf { it.qty }.toDouble(),
+                price = key.price,
+                total = grouped.sumOf { it.qty * it.price }
+            )
+        }
+        .sortedWith(
+            compareBy<DisplayCard>(
+                {
+                    when (it.lineType) {
+                        "STORNO" -> 0
+                        "GRATIS" -> 1
+                        "OTPIS" -> 2
+                        else -> 3
+                    }
+                },
+                { it.name }
+            )
+        )
+
+    return normalCards + actionCards
+}
+
+private fun formatQty(qty: Double): String {
+    val isWhole = kotlin.math.abs(qty % 1.0) < 0.0001
+    return if (isWhole) {
+        "${qty.toInt()}x"
+    } else {
+        "${"%.1f".format(qty)}x"
+    }
+}
+
+@Composable
+private fun PaymentStatusIndicator(
+    isFullyPaid: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val containerColor = if (isFullyPaid) Color(0xFF2E7D32) else Color(0xFF9CCC65)
+    val contentColor = Color.White
+    Box(
+        modifier = modifier
+            .background(
+                color = containerColor,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Check,
+            contentDescription = if (isFullyPaid) "Plaćeno" else "Djelomično plaćeno",
+            tint = contentColor,
+            modifier = Modifier.height(10.dp)
+        )
+    }
 }
 
 @Composable
@@ -498,58 +950,6 @@ private fun ItemActionDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !isSubmitting) {
-                Text("Odustani")
-            }
-        }
-    )
-}
-
-@Composable
-private fun PayPinDialog(
-    pin: String,
-    error: String?,
-    isSubmitting: Boolean,
-    onPinChanged: (String) -> Unit,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("PIN potvrda") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Unesite PIN za osjetljivu akciju (naplata).")
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = onPinChanged,
-                    label = { Text("PIN") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    enabled = !isSubmitting,
-                    isError = !error.isNullOrBlank()
-                )
-                if (!error.isNullOrBlank()) {
-                    Text(
-                        text = error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onConfirm,
-                enabled = !isSubmitting
-            ) {
-                Text(if (isSubmitting) "..." else "Potvrdi")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isSubmitting
-            ) {
                 Text("Odustani")
             }
         }
