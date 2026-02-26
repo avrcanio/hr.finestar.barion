@@ -3,9 +3,11 @@ package pos.finestar.barion.floorplan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -36,6 +39,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import pos.finestar.barion.domain.model.FloorTable
+import pos.finestar.barion.domain.model.RuntimeMode
 import pos.finestar.barion.domain.model.TableStatus
 
 private const val CANVAS_WIDTH = 1000f
@@ -103,12 +107,21 @@ fun FloorPlanScreen(
                                                     if (layout.isDefault) "${layout.name} (default)" else layout.name
                                                 )
                                             },
+                                            enabled = !state.isLoading && !state.isMutating,
                                             modifier = Modifier.padding(end = 8.dp)
                                         )
                                     }
                                 }
                             }
                         }
+                    },
+                    actions = {
+                        RuntimeModeIndicator(
+                            runtimeMode = state.runtimeMode,
+                            isRefreshing = state.isRuntimeModeRefreshing,
+                            enabled = !state.isLoading && !state.isMutating && !state.isRuntimeModeRefreshing,
+                            onRefresh = onRefresh
+                        )
                     }
                 )
             }
@@ -144,6 +157,7 @@ fun FloorPlanScreen(
                 ) {
                     FloorCanvas(
                         tables = state.tables,
+                        interactionsEnabled = !state.isLoading && !state.isMutating,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -153,6 +167,51 @@ fun FloorPlanScreen(
                 }
             }
         }
+
+        if (state.isLoading || state.isMutating) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = {}, onLongPress = {})
+                    }
+            )
+        }
+        }
+    }
+}
+
+@Composable
+private fun RuntimeModeIndicator(
+    runtimeMode: RuntimeMode,
+    isRefreshing: Boolean,
+    enabled: Boolean,
+    onRefresh: () -> Unit
+) {
+    val symbol = when (runtimeMode) {
+        RuntimeMode.DAY -> "\u2600"
+        RuntimeMode.NIGHT -> "\u263D"
+        RuntimeMode.UNKNOWN -> null
+    }
+    if (symbol == null && !isRefreshing) return
+
+    Row(
+        modifier = Modifier
+            .padding(end = 8.dp)
+            .clickable(enabled = enabled) { onRefresh() },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isRefreshing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp
+            )
+        } else {
+            val symbolText = symbol ?: return
+            Text(
+                text = symbolText,
+                style = MaterialTheme.typography.titleLarge
+            )
         }
     }
 }
@@ -160,6 +219,7 @@ fun FloorPlanScreen(
 @Composable
 private fun FloorCanvas(
     tables: List<FloorTable>,
+    interactionsEnabled: Boolean,
     onTableClick: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -184,7 +244,7 @@ private fun FloorCanvas(
                     .padding(start = offsetXDp, top = offsetYDp)
                     .size(width = widthDp, height = heightDp)
                     .background(table.status.toColor())
-                    .clickable { onTableClick(table.id) },
+                    .clickable(enabled = interactionsEnabled) { onTableClick(table.id) },
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

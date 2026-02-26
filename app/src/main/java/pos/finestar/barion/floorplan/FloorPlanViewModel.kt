@@ -14,12 +14,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorTable
+import pos.finestar.barion.domain.model.RuntimeMode
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.usecase.CreateCheckForTableUseCase
 import pos.finestar.barion.domain.usecase.GetAllowedLayoutsUseCase
 import pos.finestar.barion.domain.usecase.GetFloorTablesUseCase
 import pos.finestar.barion.domain.usecase.GetOpenCheckForTableUseCase
+import pos.finestar.barion.domain.usecase.GetRuntimeModeUseCase
 import retrofit2.HttpException
 
 @HiltViewModel
@@ -28,16 +30,20 @@ class FloorPlanViewModel @Inject constructor(
     private val getAllowedLayouts: GetAllowedLayoutsUseCase,
     private val createCheckForTable: CreateCheckForTableUseCase,
     private val getOpenCheckForTable: GetOpenCheckForTableUseCase,
+    private val getRuntimeMode: GetRuntimeModeUseCase,
     private val authRepository: AuthRepository
 ) : ViewModel() {
 
     data class UiState(
         val isLoading: Boolean = true,
+        val isMutating: Boolean = false,
+        val isRuntimeModeRefreshing: Boolean = false,
         val tables: List<FloorTable> = emptyList(),
         val allowedLayouts: List<AllowedLayout> = emptyList(),
         val selectedLayoutId: Long? = null,
         val selectedLayoutName: String? = null,
         val userDisplayName: String? = null,
+        val runtimeMode: RuntimeMode = RuntimeMode.UNKNOWN,
         val error: String? = null
     )
 
@@ -74,6 +80,7 @@ class FloorPlanViewModel @Inject constructor(
     fun onTableClick(tableId: Long) {
         viewModelScope.launch {
             val table = _uiState.value.tables.firstOrNull { it.id == tableId }
+            _uiState.update { it.copy(isMutating = true, error = null) }
             runCatching {
                 if (table?.status == TableStatus.OPEN) {
                     getOpenCheckForTable(tableId)
@@ -81,6 +88,7 @@ class FloorPlanViewModel @Inject constructor(
                     createCheckForTable(tableId)
                 }
             }.onSuccess { check ->
+                _uiState.update { it.copy(isMutating = false) }
                 _events.emit(
                     Event.OpenCheck(
                         checkId = check.checkId,
@@ -99,11 +107,13 @@ class FloorPlanViewModel @Inject constructor(
                         throwable.message ?: "Ne mogu otvoriti sto."
                 }
                 _uiState.update { it.copy(error = message) }
+                _uiState.update { it.copy(isMutating = false) }
             }
         }
     }
 
     private fun loadInitial(forceLoading: Boolean) {
+        loadRuntimeMode(forceRefresh = true)
         loadTables(forceLoading = forceLoading, layoutId = _uiState.value.selectedLayoutId)
     }
 
@@ -173,6 +183,19 @@ class FloorPlanViewModel @Inject constructor(
         viewModelScope.launch {
             val displayName = authRepository.currentUserDisplayName()
             _uiState.update { it.copy(userDisplayName = displayName) }
+        }
+    }
+
+    private fun loadRuntimeMode(forceRefresh: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRuntimeModeRefreshing = true) }
+            runCatching { getRuntimeMode(forceRefresh = forceRefresh) }
+                .onSuccess { runtimeMode ->
+                    _uiState.update { it.copy(runtimeMode = runtimeMode, isRuntimeModeRefreshing = false) }
+                }
+                .onFailure {
+                    _uiState.update { it.copy(isRuntimeModeRefreshing = false) }
+                }
         }
     }
 }

@@ -15,6 +15,10 @@ import pos.finestar.barion.api.model.PinLoginRequestDto
 import pos.finestar.barion.api.model.PinLoginResponseDto
 import pos.finestar.barion.api.model.PinVerifyRequestDto
 import pos.finestar.barion.api.model.PinVerifyResponseDto
+import pos.finestar.barion.api.model.RuntimeModeDto
+import pos.finestar.barion.api.model.SettlementPayCardConfirmRequestDto
+import pos.finestar.barion.api.model.SettlementPayCashRequestDto
+import pos.finestar.barion.api.model.SettlementPrepareRequestDto
 import pos.finestar.barion.api.model.TableStatusDto
 import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
 import retrofit2.Response
@@ -45,6 +49,9 @@ interface PosApi {
         @Query("layout_id") layoutId: Long? = null,
         @Query("include_allowed") includeAllowed: Int? = null
     ): ActiveLayoutDto
+
+    @GET("/api/pos/runtime-mode/")
+    suspend fun getRuntimeMode(): RuntimeModeDto
 
     @GET("/api/pos/layouts/allowed/")
     suspend fun getAllowedLayouts(): AllowedLayoutsDto
@@ -145,5 +152,47 @@ interface PosApi {
     suspend fun issueReceipt(
         @Path("checkId") checkId: Long,
         @Body request: IssueReceiptRequestDto = IssueReceiptRequestDto()
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/prepare-settlement/")
+    suspend fun prepareSettlementPart(
+        @Path("checkId") checkId: Long,
+        @Body request: SettlementPrepareRequestDto
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/settlements/parts/{partId}/pay-cash/")
+    suspend fun paySettlementPartCash(
+        @Path("checkId") checkId: Long,
+        @Path("partId") partId: Long,
+        @Body request: SettlementPayCashRequestDto
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/settlements/parts/{partId}/pay-card/confirm/")
+    suspend fun confirmSettlementPartCard(
+        @Path("checkId") checkId: Long,
+        @Path("partId") partId: Long,
+        @Body request: SettlementPayCardConfirmRequestDto
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/pay-card/confirm/")
+    suspend fun confirmSettlementCard(
+        @Path("checkId") checkId: Long,
+        @Body request: SettlementPayCardConfirmRequestDto
+    ): JsonObject
+
+    @GET("/api/pos/checks/{checkId}/settlement-state/")
+    suspend fun getSettlementState(
+        @Path("checkId") checkId: Long
+    ): JsonObject
+
+    @GET("/api/pos/checks/{checkId}/round-state/")
+    suspend fun getCheckRoundState(
+        @Path("checkId") checkId: Long
+    ): JsonObject
+
+    @POST("/api/pos/checks/{checkId}/receipts/{receiptId}/fiscalize/")
+    suspend fun fiscalizeReceipt(
+        @Path("checkId") checkId: Long,
+        @Path("receiptId") receiptId: Long
     ): JsonObject
 }

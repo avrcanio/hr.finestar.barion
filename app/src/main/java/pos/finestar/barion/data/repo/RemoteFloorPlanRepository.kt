@@ -12,6 +12,7 @@ import pos.finestar.barion.data.local.ApiCacheEntity
 import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorTable
 import pos.finestar.barion.domain.model.FloorPlanData
+import pos.finestar.barion.domain.model.RuntimeMode
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.FloorPlanRepository
 import retrofit2.HttpException
@@ -25,6 +26,7 @@ class RemoteFloorPlanRepository @Inject constructor(
 
     private val activeLayoutTtlMillis = 60_000L
     private val allowedLayoutsTtlMillis = 5 * 60_000L
+    private val runtimeModeTtlMillis = 30_000L
 
     override suspend fun getTables(layoutId: Long?, forceRefresh: Boolean): FloorPlanData {
         val cacheKey = "active_layout:${layoutId ?: 0L}"
@@ -115,6 +117,30 @@ class RemoteFloorPlanRepository @Inject constructor(
                 ttlMillis = Long.MAX_VALUE,
                 type = object : TypeToken<List<AllowedLayout>>() {}.type
             ) ?: throw t
+        }
+    }
+
+    override suspend fun getRuntimeMode(forceRefresh: Boolean): RuntimeMode {
+        val cacheKey = "runtime_mode"
+        if (!forceRefresh) {
+            val cached = readCacheEntry<RuntimeMode>(
+                key = cacheKey,
+                ttlMillis = runtimeModeTtlMillis,
+                type = RuntimeMode::class.java
+            )
+            if (cached != null) return cached
+        }
+
+        return try {
+            val fresh = RuntimeMode.fromRaw(api.getRuntimeMode().activeMode)
+            writeCacheEntry(cacheKey, fresh)
+            fresh
+        } catch (t: Throwable) {
+            readCacheEntry<RuntimeMode>(
+                key = cacheKey,
+                ttlMillis = Long.MAX_VALUE,
+                type = RuntimeMode::class.java
+            ) ?: RuntimeMode.UNKNOWN
         }
     }
 
