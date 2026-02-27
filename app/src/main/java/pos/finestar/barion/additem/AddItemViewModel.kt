@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,10 +19,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import pos.finestar.barion.BuildConfig
 import pos.finestar.barion.domain.model.CatalogProduct
+import pos.finestar.barion.domain.model.ModifierType
+import pos.finestar.barion.domain.model.ProductModifierGroup
+import pos.finestar.barion.domain.model.ProductModifierOption
+import pos.finestar.barion.domain.model.ProductModifiersConfig
+import pos.finestar.barion.domain.model.SelectedModifier
+import pos.finestar.barion.domain.model.SelectionMode
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
 import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
-import pos.finestar.barion.domain.usecase.SendToBarUseCase
+import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
+import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
+import pos.finestar.barion.domain.usecase.SendToBarUseCase
 import pos.finestar.barion.ui.navigation.NavRoutes
 
 @HiltViewModel
@@ -28,6 +38,8 @@ class AddItemViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getDrinkCategoriesUseCase: GetDrinkCategoriesUseCase,
     private val searchProductsUseCase: SearchProductsUseCase,
+    private val getProductModifiersUseCase: GetProductModifiersUseCase,
+    private val previewBundlePriceUseCase: PreviewBundlePriceUseCase,
     private val addItemToCheckUseCase: AddItemToCheckUseCase,
     private val sendToBarUseCase: SendToBarUseCase
 ) : ViewModel() {
@@ -45,14 +57,40 @@ class AddItemViewModel @Inject constructor(
         val unitPrice: Double
     )
 
+    data class ModifierOptionUi(
+        val id: Long,
+        val name: String,
+        val type: ModifierType,
+        val code: String? = null,
+        val artiklName: String? = null,
+        val priceDelta: Double = 0.0,
+        val selected: Boolean = false,
+        val quantity: Int = 0
+    )
+
+    data class ModifierGroupUi(
+        val id: Long,
+        val name: String,
+        val type: ModifierType,
+        val selectionMode: SelectionMode,
+        val minSelect: Int,
+        val maxSelect: Int?,
+        val options: List<ModifierOptionUi>
+    )
+
     data class CartItemUi(
+        val lineId: Long,
         val productId: Long,
         val name: String,
         val imageUrl: String?,
         val qty: Int,
-        val unitPrice: Double
+        val unitPrice: Double,
+        val modifiers: List<SelectedModifier> = emptyList(),
+        val note: String? = null,
+        val displayLines: List<String> = emptyList()
     ) {
         val lineTotal: Double get() = qty * unitPrice
+        val isConfigured: Boolean get() = modifiers.isNotEmpty() || !note.isNullOrBlank()
     }
 
     data class UiState(
@@ -64,16 +102,25 @@ class AddItemViewModel @Inject constructor(
         val selectedCategoryId: Long? = null,
         val query: String = "",
         val products: List<ProductUi> = emptyList(),
+        val hasModifiersByProductId: Map<Long, Boolean> = emptyMap(),
         val cart: List<CartItemUi> = emptyList(),
-        val showQtyDialog: Boolean = false,
-        val qtyDialogProduct: ProductUi? = null,
-        val qtyDialogQty: Int = 1,
+        val showModifierDialog: Boolean = false,
+        val modifierDialogLoading: Boolean = false,
+        val modifierDialogProduct: ProductUi? = null,
+        val modifierDialogGroups: List<ModifierGroupUi> = emptyList(),
+        val modifierDialogNote: String = "",
+        val modifierDialogPricePreview: Double? = null,
+        val modifierDialogDelta: Double? = null,
         val showCartDialog: Boolean = false,
         val error: String? = null,
         val message: String? = null
     ) {
         val cartItemsCount: Int get() = cart.sumOf { it.qty }
         val cartSubtotal: Double get() = cart.sumOf { it.lineTotal }
+        val cartQtyByProductId: Map<Long, Int>
+            get() = cart.groupBy { it.productId }.mapValues { (_, lines) -> lines.sumOf { it.qty } }
+        val cartConfiguredByProductId: Map<Long, Boolean>
+            get() = cart.groupBy { it.productId }.mapValues { (_, lines) -> lines.any { it.isConfigured } }
     }
 
     sealed interface Event {
@@ -83,6 +130,8 @@ class AddItemViewModel @Inject constructor(
     private val checkId: Long = savedStateHandle[NavRoutes.ARG_CHECK_ID] ?: 0L
     private val tableName: String = savedStateHandle[NavRoutes.ARG_TABLE_NAME] ?: "Unknown"
     private var searchJob: Job? = null
+    private val modifierHintsInFlight = Collections.synchronizedSet(mutableSetOf<Long>())
+    private val cartLineIdGenerator = AtomicLong(1L)
 
     private val _uiState = MutableStateFlow(
         UiState(
@@ -114,62 +163,306 @@ class AddItemViewModel @Inject constructor(
     }
 
     fun onProductLongPressed(product: ProductUi) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    showModifierDialog = true,
+                    modifierDialogLoading = true,
+                    modifierDialogProduct = product,
+                    modifierDialogGroups = emptyList(),
+                    modifierDialogNote = "",
+                    modifierDialogPricePreview = null,
+                    modifierDialogDelta = null,
+                    error = null
+                )
+            }
+
+            runCatching {
+                getProductModifiersUseCase(productId = product.id, forceRefresh = false)
+            }.onSuccess { config ->
+                _uiState.update {
+                    it.copy(
+                        modifierDialogLoading = false,
+                        modifierDialogGroups = config.groups.toDialogGroups(),
+                        hasModifiersByProductId = it.hasModifiersByProductId + (product.id to config.groups.isNotEmpty())
+                    )
+                }
+            }.onFailure { throwable ->
+                _uiState.update {
+                    it.copy(
+                        modifierDialogLoading = false,
+                        modifierDialogGroups = emptyList(),
+                        message = throwable.message ?: "Ne mogu učitati opcije za artikl."
+                    )
+                }
+            }
+        }
+    }
+
+    fun onModifierDialogDismiss() {
         _uiState.update {
             it.copy(
-                showQtyDialog = true,
-                qtyDialogProduct = product,
-                qtyDialogQty = 1
+                showModifierDialog = false,
+                modifierDialogLoading = false,
+                modifierDialogProduct = null,
+                modifierDialogGroups = emptyList(),
+                modifierDialogNote = "",
+                modifierDialogPricePreview = null,
+                modifierDialogDelta = null
             )
         }
     }
 
-    fun onQtyChanged(delta: Int) {
-        _uiState.update {
-            it.copy(qtyDialogQty = (it.qtyDialogQty + delta).coerceAtLeast(1))
+    fun onModifierNoteChanged(note: String) {
+        _uiState.update { it.copy(modifierDialogNote = note) }
+    }
+
+    fun onModifierSimpleToggle(groupId: Long, optionId: Long) {
+        _uiState.update { state ->
+            val updatedGroups = state.modifierDialogGroups.map { group ->
+                if (group.id != groupId || group.type != ModifierType.SIMPLE) return@map group
+                val toggled = group.options.map { option ->
+                    if (option.id == optionId) {
+                        option.copy(selected = !option.selected)
+                    } else if (group.selectionMode == SelectionMode.SINGLE) {
+                        option.copy(selected = false)
+                    } else {
+                        option
+                    }
+                }
+                group.copy(options = toggled)
+            }
+            state.copy(modifierDialogGroups = updatedGroups)
         }
     }
 
-    fun onQtyDialogDismiss() {
-        _uiState.update {
-            it.copy(showQtyDialog = false, qtyDialogProduct = null, qtyDialogQty = 1)
+    fun onModifierBundleQtyChange(groupId: Long, optionId: Long, delta: Int) {
+        _uiState.update { state ->
+            val updatedGroups = state.modifierDialogGroups.map { group ->
+                if (group.id != groupId || group.type != ModifierType.BUNDLE) return@map group
+
+                val currentTotal = group.options.sumOf { it.quantity }
+                val changedOptions = group.options.map optionMap@{ option ->
+                    if (option.id != optionId) return@optionMap option
+                    val candidate = (option.quantity + delta).coerceAtLeast(0)
+                    if (delta > 0 && group.maxSelect != null && currentTotal >= group.maxSelect) {
+                        option
+                    } else {
+                        option.copy(quantity = candidate)
+                    }
+                }
+                group.copy(options = changedOptions)
+            }
+            state.copy(modifierDialogGroups = updatedGroups)
+        }
+
+        viewModelScope.launch {
+            refreshBundlePreview()
         }
     }
 
-    fun onQtyDialogAdd() {
-        val product = _uiState.value.qtyDialogProduct ?: return
-        val qty = _uiState.value.qtyDialogQty
-        addProductToCart(product = product, qty = qty)
+    fun onModifierDialogConfirm() {
+        val state = _uiState.value
+        val product = state.modifierDialogProduct ?: return
+        val selectedModifiers = collectSelectedModifiers(state.modifierDialogGroups)
+        val note = state.modifierDialogNote.trim().takeIf { it.isNotBlank() }
+
+        if (!validateModifierSelections(state.modifierDialogGroups)) return
+
+        val hasBundle = selectedModifiers.any { it.type == ModifierType.BUNDLE }
+        val unitPrice = if (hasBundle) {
+            state.modifierDialogPricePreview ?: product.unitPrice
+        } else {
+            product.unitPrice
+        }
+
+        val lines = buildDisplayLines(
+            groups = state.modifierDialogGroups,
+            note = note
+        )
+
+        addProductToCart(
+            product = product,
+            qty = 1,
+            unitPriceOverride = unitPrice,
+            modifiers = selectedModifiers,
+            note = note,
+            displayLines = lines
+        )
+
         _uiState.update {
             it.copy(
-                showQtyDialog = false,
-                qtyDialogProduct = null,
-                qtyDialogQty = 1
+                showModifierDialog = false,
+                modifierDialogLoading = false,
+                modifierDialogProduct = null,
+                modifierDialogGroups = emptyList(),
+                modifierDialogNote = "",
+                modifierDialogPricePreview = null,
+                modifierDialogDelta = null,
+                message = "Dodano u košaricu: ${product.name}"
             )
         }
     }
 
-    private fun addProductToCart(product: ProductUi, qty: Int) {
+    private fun validateModifierSelections(groups: List<ModifierGroupUi>): Boolean {
+        val invalid = groups.firstOrNull { group ->
+            val selectedCount = when (group.type) {
+                ModifierType.SIMPLE -> group.options.count { it.selected }
+                ModifierType.BUNDLE -> group.options.sumOf { it.quantity }
+            }
+            val minFail = selectedCount < group.minSelect
+            val maxFail = group.maxSelect?.let { selectedCount > it } == true
+            minFail || maxFail
+        }
+
+        if (invalid != null) {
+            val maxLabel = invalid.maxSelect?.toString() ?: "∞"
+            _uiState.update {
+                it.copy(message = "Grupa '${invalid.name}' traži odabir između ${invalid.minSelect} i $maxLabel opcija.")
+            }
+            return false
+        }
+        return true
+    }
+
+    private suspend fun refreshBundlePreview() {
+        val state = _uiState.value
+        val product = state.modifierDialogProduct ?: return
+        val bundleModifiers = collectSelectedModifiers(state.modifierDialogGroups)
+            .filter { it.type == ModifierType.BUNDLE }
+
+        if (bundleModifiers.isEmpty()) {
+            _uiState.update { it.copy(modifierDialogPricePreview = null, modifierDialogDelta = null) }
+            return
+        }
+
+        runCatching {
+            previewBundlePriceUseCase(productId = product.id, modifiers = bundleModifiers)
+        }.onSuccess { preview ->
+            _uiState.update {
+                it.copy(
+                    modifierDialogPricePreview = preview.finalUnitPrice,
+                    modifierDialogDelta = preview.mixersDelta
+                )
+            }
+        }.onFailure {
+            _uiState.update { it.copy(modifierDialogPricePreview = null, modifierDialogDelta = null) }
+        }
+    }
+
+    private fun collectSelectedModifiers(groups: List<ModifierGroupUi>): List<SelectedModifier> {
+        return groups.flatMap { group ->
+            when (group.type) {
+                ModifierType.SIMPLE -> group.options.filter { it.selected }.map { option ->
+                    SelectedModifier(type = ModifierType.SIMPLE, id = option.id)
+                }
+
+                ModifierType.BUNDLE -> group.options.filter { it.quantity > 0 }.map { option ->
+                    SelectedModifier(
+                        type = ModifierType.BUNDLE,
+                        id = option.id,
+                        quantity = option.quantity
+                    )
+                }
+            }
+        }
+    }
+
+    private fun buildDisplayLines(groups: List<ModifierGroupUi>, note: String?): List<String> {
+        val lines = mutableListOf<String>()
+        groups.forEach { group ->
+            when (group.type) {
+                ModifierType.SIMPLE -> group.options
+                    .filter { it.selected }
+                    .forEach { lines.add("• ${it.name}") }
+
+                ModifierType.BUNDLE -> group.options
+                    .filter { it.quantity > 0 }
+                    .forEach { lines.add("• ${it.name} x${it.quantity}") }
+            }
+        }
+        note?.takeIf { it.isNotBlank() }?.let { lines.add("• Napomena: $it") }
+        return lines
+    }
+
+    private fun List<ProductModifierGroup>.toDialogGroups(): List<ModifierGroupUi> {
+        return map { group ->
+            ModifierGroupUi(
+                id = group.id,
+                name = group.name,
+                type = group.type,
+                selectionMode = group.selectionMode,
+                minSelect = group.minSelect,
+                maxSelect = group.maxSelect,
+                options = group.options.toDialogOptions()
+            )
+        }
+    }
+
+    private fun List<ProductModifierOption>.toDialogOptions(): List<ModifierOptionUi> {
+        return map { option ->
+            ModifierOptionUi(
+                id = option.id,
+                name = option.name,
+                type = option.type,
+                code = option.code,
+                artiklName = option.artiklName,
+                priceDelta = option.priceDelta
+            )
+        }
+    }
+
+    private fun addProductToCart(
+        product: ProductUi,
+        qty: Int,
+        unitPriceOverride: Double? = null,
+        modifiers: List<SelectedModifier> = emptyList(),
+        note: String? = null,
+        displayLines: List<String> = emptyList()
+    ) {
         if (qty <= 0) return
 
+        val configured = modifiers.isNotEmpty() || !note.isNullOrBlank()
+        val unitPrice = unitPriceOverride ?: product.unitPrice
+
         _uiState.update { state ->
-            val existing = state.cart.firstOrNull { it.productId == product.id }
-            val updatedCart = if (existing == null) {
+            val updatedCart = if (!configured) {
+                val existing = state.cart.firstOrNull { it.productId == product.id && !it.isConfigured }
+                if (existing == null) {
+                    state.cart + CartItemUi(
+                        lineId = cartLineIdGenerator.getAndIncrement(),
+                        productId = product.id,
+                        name = product.name,
+                        imageUrl = product.imageUrl,
+                        qty = qty,
+                        unitPrice = unitPrice
+                    )
+                } else {
+                    state.cart.map {
+                        if (it.lineId == existing.lineId) it.copy(qty = it.qty + qty) else it
+                    }
+                }
+            } else {
                 state.cart + CartItemUi(
+                    lineId = cartLineIdGenerator.getAndIncrement(),
                     productId = product.id,
                     name = product.name,
                     imageUrl = product.imageUrl,
-                    qty = qty,
-                    unitPrice = product.unitPrice
+                    qty = 1,
+                    unitPrice = unitPrice,
+                    modifiers = modifiers,
+                    note = note,
+                    displayLines = displayLines
                 )
-            } else {
-                state.cart.map {
-                    if (it.productId == product.id) it.copy(qty = it.qty + qty) else it
-                }
             }
 
             state.copy(
                 cart = updatedCart,
-                message = "Dodano u košaricu: ${product.name} x$qty"
+                message = if (configured) {
+                    "Dodano konfigurirano: ${product.name}"
+                } else {
+                    "Dodano u košaricu: ${product.name} x$qty"
+                }
             )
         }
     }
@@ -183,10 +476,14 @@ class AddItemViewModel @Inject constructor(
     }
 
     fun onCartIncrease(item: CartItemUi) {
+        if (item.isConfigured) {
+            _uiState.update { it.copy(message = "Stavka s opcijama/napomenom ostaje na količini 1.") }
+            return
+        }
         _uiState.update { state ->
             state.copy(
                 cart = state.cart.map {
-                    if (it.productId == item.productId) it.copy(qty = it.qty + 1) else it
+                    if (it.lineId == item.lineId) it.copy(qty = it.qty + 1) else it
                 }
             )
         }
@@ -196,7 +493,7 @@ class AddItemViewModel @Inject constructor(
         _uiState.update { state ->
             state.copy(
                 cart = state.cart.mapNotNull {
-                    if (it.productId != item.productId) return@mapNotNull it
+                    if (it.lineId != item.lineId) return@mapNotNull it
                     val nextQty = it.qty - 1
                     if (nextQty <= 0) null else it.copy(qty = nextQty)
                 }
@@ -206,7 +503,7 @@ class AddItemViewModel @Inject constructor(
 
     fun onCartRemove(item: CartItemUi) {
         _uiState.update { state ->
-            state.copy(cart = state.cart.filterNot { it.productId == item.productId })
+            state.copy(cart = state.cart.filterNot { it.lineId == item.lineId })
         }
     }
 
@@ -221,12 +518,15 @@ class AddItemViewModel @Inject constructor(
             _uiState.update { it.copy(isSubmitting = true, error = null, message = null) }
             runCatching {
                 cart.forEach { item ->
+                    val qty = if (item.isConfigured) 1 else item.qty
                     addItemToCheckUseCase(
                         checkId = checkId,
                         productId = item.productId,
-                        qty = item.qty,
+                        qty = qty,
                         unitPrice = item.unitPrice,
-                        productName = item.name
+                        productName = item.name,
+                        modifiers = item.modifiers,
+                        note = item.note
                     )
                 }
                 sendToBarUseCase(checkId = checkId)
@@ -282,6 +582,7 @@ class AddItemViewModel @Inject constructor(
                         error = null
                     )
                 }
+                scheduleModifierHints(products)
                 refreshCatalogInBackground(
                     query = _uiState.value.query,
                     selectedCategoryId = selectedCategoryId
@@ -314,6 +615,7 @@ class AddItemViewModel @Inject constructor(
                 val latest = _uiState.value
                 if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
                     _uiState.update { it.copy(products = products, error = null) }
+                    scheduleModifierHints(products)
                 }
             }.onFailure { throwable ->
                 _uiState.update {
@@ -331,6 +633,7 @@ class AddItemViewModel @Inject constructor(
                 val latest = _uiState.value
                 if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
                     _uiState.update { it.copy(products = freshProducts, error = null) }
+                    scheduleModifierHints(freshProducts)
                 }
             }
         }
@@ -359,7 +662,29 @@ class AddItemViewModel @Inject constructor(
                             error = null
                         )
                     }
+                    scheduleModifierHints(products)
                 }
+            }
+        }
+    }
+
+    private fun scheduleModifierHints(products: List<ProductUi>) {
+        val productIds = products.map { it.id }.distinct()
+        if (productIds.isEmpty()) return
+
+        productIds.forEach { productId ->
+            val known = _uiState.value.hasModifiersByProductId.containsKey(productId)
+            if (known) return@forEach
+            if (!modifierHintsInFlight.add(productId)) return@forEach
+
+            viewModelScope.launch {
+                val hasModifiers = runCatching {
+                    getProductModifiersUseCase(productId = productId, forceRefresh = false).groups.isNotEmpty()
+                }.getOrDefault(false)
+                _uiState.update {
+                    it.copy(hasModifiersByProductId = it.hasModifiersByProductId + (productId to hasModifiers))
+                }
+                modifierHintsInFlight.remove(productId)
             }
         }
     }

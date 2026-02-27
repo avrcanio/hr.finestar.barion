@@ -129,7 +129,11 @@ fun CheckScreen(
             )
         },
         bottomBar = {
-            val isZeroTotal = kotlin.math.abs(state.total) < 0.005
+            val isZeroOpenTotal = when (val openTotal = state.settlementOpenTotal) {
+                null -> kotlin.math.abs(state.total) < 0.005
+                else -> kotlin.math.abs(openTotal) < 0.005
+            }
+            val canCloseAsFree = state.status.equals("OPEN", ignoreCase = true) && isZeroOpenTotal
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,13 +153,13 @@ fun CheckScreen(
                         Text("Dodaj stavku")
                     }
                     Button(
-                        onClick = if (isZeroTotal) onFree else onPay,
+                        onClick = if (canCloseAsFree) onFree else onPay,
                         modifier = Modifier.weight(1f),
                         enabled = !state.isLoading &&
                             !state.isMutating &&
                             state.items.isNotEmpty() &&
-                            !state.settlementCompleted,
-                        colors = if (isZeroTotal) {
+                            (canCloseAsFree || !state.settlementCompleted),
+                        colors = if (canCloseAsFree) {
                             ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF7BC67B),
                                 contentColor = Color(0xFF1D1D1D)
@@ -164,7 +168,7 @@ fun CheckScreen(
                             ButtonDefaults.buttonColors()
                         }
                     ) {
-                        Text(if (state.isMutating) "..." else if (isZeroTotal) "Free" else "Naplata")
+                        Text(if (state.isMutating) "..." else if (canCloseAsFree) "Free" else "Naplata")
                     }
                 }
             }
@@ -648,6 +652,18 @@ private fun ItemsList(
                             Text("Cijena: ${"%.2f".format(card.price)} EUR", style = MaterialTheme.typography.bodySmall)
                             Text("Ukupno: ${"%.2f".format(card.total)} EUR", style = MaterialTheme.typography.bodySmall)
                         }
+
+                        if (card.displayLines.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                card.displayLines.forEach { line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -744,6 +760,7 @@ private data class DisplayCard(
     val qty: Double,
     val price: Double,
     val total: Double,
+    val displayLines: List<String> = emptyList(),
     val strikeMain: Boolean = false,
     val isFullyPaid: Boolean = false,
     val isPartialPaid: Boolean = false,
@@ -776,6 +793,7 @@ private fun buildRoundDisplayCards(
                 qty = sourceQty.toDouble(),
                 price = item.price,
                 total = sourceQty * item.price,
+                displayLines = item.displayLines,
                 strikeMain = roundState?.strikeMain == true || isFullyPaid,
                 isFullyPaid = isFullyPaid,
                 isPartialPaid = isPartialPaid
@@ -812,7 +830,8 @@ private fun buildRoundDisplayCards(
                 name = key.name,
                 qty = grouped.sumOf { it.qty }.toDouble(),
                 price = key.price,
-                total = grouped.sumOf { it.qty * it.price }
+                total = grouped.sumOf { it.qty * it.price },
+                displayLines = grouped.flatMap { it.displayLines }.distinct()
             )
         }
         .sortedWith(

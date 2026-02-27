@@ -9,6 +9,7 @@ data class CheckItem(
     val price: Double,
     val lineType: String = "NORMAL",
     val note: String? = null,
+    val displayLines: List<String> = emptyList(),
     val roundNumber: Int? = null,
     val sentToBar: Boolean = false,
     val sentAt: String? = null

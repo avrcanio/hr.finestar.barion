@@ -15,6 +15,7 @@ import pos.finestar.barion.domain.model.SettlementPrepareResult
 import pos.finestar.barion.domain.model.SettlementReceipt
 import pos.finestar.barion.domain.model.SettlementState
 import pos.finestar.barion.domain.model.SettlementSelection
+import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
 
@@ -56,16 +57,27 @@ class FakeCheckRepository @Inject constructor() : CheckRepository {
         productId: Long,
         qty: Int,
         unitPrice: Double,
-        productName: String?
+        productName: String?,
+        modifiers: List<SelectedModifier>,
+        note: String?
     ): CheckSession {
         val current = checksByTableId.values.firstOrNull { it.checkId == checkId }
             ?: throw IllegalArgumentException("Check $checkId not found")
+        val displayLines = buildList {
+            modifiers.forEach { modifier ->
+                val suffix = modifier.quantity?.takeIf { it > 0 }?.let { " x$it" }.orEmpty()
+                add("• ${modifier.type.name.lowercase()} #${modifier.id}$suffix")
+            }
+            note?.trim()?.takeIf { it.isNotBlank() }?.let { add("• Napomena: $it") }
+        }
         val added = CheckItem(
             itemId = itemIdGenerator.getAndIncrement(),
             productId = productId,
             name = productName ?: "Product $productId",
             qty = qty,
-            price = unitPrice
+            price = unitPrice,
+            note = note,
+            displayLines = displayLines
         )
         val updated = current.copy(items = current.items + added)
         checksByTableId[current.tableId] = updated

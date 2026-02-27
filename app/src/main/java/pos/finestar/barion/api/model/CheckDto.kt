@@ -39,7 +39,22 @@ data class AddCheckItemRequestDto(
     @SerializedName("quantity")
     val quantity: String,
     @SerializedName("unit_price")
-    val unitPrice: String
+    val unitPrice: String,
+    @SerializedName("vat_rate")
+    val vatRate: String? = null,
+    @SerializedName("modifiers")
+    val modifiers: List<CheckItemModifierInputDto>? = null,
+    @SerializedName("note")
+    val note: String? = null
+)
+
+data class CheckItemModifierInputDto(
+    @SerializedName("type")
+    val type: String,
+    @SerializedName("id")
+    val id: Long,
+    @SerializedName("quantity")
+    val quantity: Int? = null
 )
 
 data class UpdateCheckItemQtyRequestDto(
@@ -85,6 +100,8 @@ data class SettlementPayCashRequestDto(
     val amount: String? = null,
     @SerializedName("items")
     val items: List<SettlementPayCashItemDto>? = null,
+    @SerializedName("issue_receipt")
+    val issueReceipt: Boolean? = null,
     @SerializedName("currency")
     val currency: String = "EUR"
 )
@@ -108,6 +125,11 @@ data class SettlementPayCardConfirmRequestDto(
     val issueReceipt: Boolean? = null,
     @SerializedName("currency")
     val currency: String = "EUR"
+)
+
+data class BundlePriceRequestDto(
+    @SerializedName("modifiers")
+    val modifiers: List<CheckItemModifierInputDto>
 )
 
 data class TableStatusDto(

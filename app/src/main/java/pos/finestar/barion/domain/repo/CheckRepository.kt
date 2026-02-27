@@ -6,6 +6,7 @@ import pos.finestar.barion.domain.model.SettlementPart
 import pos.finestar.barion.domain.model.SettlementPrepareResult
 import pos.finestar.barion.domain.model.CheckRoundState
 import pos.finestar.barion.domain.model.FiscalizeReceiptResult
+import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.model.SettlementState
 import pos.finestar.barion.domain.model.SettlementSelection
 
@@ -18,7 +19,9 @@ interface CheckRepository {
         productId: Long,
         qty: Int,
         unitPrice: Double,
-        productName: String? = null
+        productName: String? = null,
+        modifiers: List<SelectedModifier> = emptyList(),
+        note: String? = null
     ): CheckSession
     suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession
     suspend fun removeItem(checkId: Long, itemId: Long): CheckSession

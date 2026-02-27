@@ -1,16 +1,17 @@
 package pos.finestar.barion.additem
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,13 +24,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,15 +50,15 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.util.Locale
-import androidx.compose.foundation.ExperimentalFoundationApi
+import pos.finestar.barion.domain.model.ModifierType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,9 +69,11 @@ fun AddItemScreen(
     onCategorySelected: (Long?) -> Unit,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
     onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
-    onQtyChanged: (Int) -> Unit,
-    onQtyDialogDismiss: () -> Unit,
-    onQtyDialogAdd: () -> Unit,
+    onModifierDialogDismiss: () -> Unit,
+    onModifierNoteChanged: (String) -> Unit,
+    onModifierSimpleToggle: (Long, Long) -> Unit,
+    onModifierBundleQtyChange: (Long, Long, Int) -> Unit,
+    onModifierDialogConfirm: () -> Unit,
     onCartOpen: () -> Unit,
     onCartDismiss: () -> Unit,
     onCartIncrease: (AddItemViewModel.CartItemUi) -> Unit,
@@ -182,7 +188,9 @@ fun AddItemScreen(
                                     )
                                     ProductsGrid(
                                         products = state.products,
-                                        cartQtyByProductId = state.cart.associate { it.productId to it.qty },
+                                        cartQtyByProductId = state.cartQtyByProductId,
+                                        hasModifiersByProductId = state.hasModifiersByProductId,
+                                        cartConfiguredByProductId = state.cartConfiguredByProductId,
                                         onProductTapped = onProductTapped,
                                         onProductLongPressed = onProductLongPressed,
                                         modifier = Modifier
@@ -202,7 +210,9 @@ fun AddItemScreen(
                                     )
                                     ProductsGrid(
                                         products = state.products,
-                                        cartQtyByProductId = state.cart.associate { it.productId to it.qty },
+                                        cartQtyByProductId = state.cartQtyByProductId,
+                                        hasModifiersByProductId = state.hasModifiersByProductId,
+                                        cartConfiguredByProductId = state.cartConfiguredByProductId,
                                         onProductTapped = onProductTapped,
                                         onProductLongPressed = onProductLongPressed,
                                         modifier = Modifier.fillMaxSize()
@@ -215,14 +225,14 @@ fun AddItemScreen(
             }
         }
 
-        if (state.showQtyDialog && state.qtyDialogProduct != null) {
-            QtyDialog(
-                product = state.qtyDialogProduct,
-                qty = state.qtyDialogQty,
-                isSubmitting = state.isSubmitting,
-                onQtyChanged = onQtyChanged,
-                onDismiss = onQtyDialogDismiss,
-                onAdd = onQtyDialogAdd
+        if (state.showModifierDialog && state.modifierDialogProduct != null) {
+            ModifierDialog(
+                state = state,
+                onDismiss = onModifierDialogDismiss,
+                onNoteChanged = onModifierNoteChanged,
+                onSimpleToggle = onModifierSimpleToggle,
+                onBundleQtyChange = onModifierBundleQtyChange,
+                onConfirm = onModifierDialogConfirm
             )
         }
 
@@ -240,7 +250,7 @@ fun AddItemScreen(
             )
         }
 
-        if (state.isLoading || state.isSubmitting) {
+        if (state.isLoading || state.isSubmitting || state.modifierDialogLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -324,6 +334,8 @@ private fun CategoryItem(
 private fun ProductsGrid(
     products: List<AddItemViewModel.ProductUi>,
     cartQtyByProductId: Map<Long, Int>,
+    hasModifiersByProductId: Map<Long, Boolean>,
+    cartConfiguredByProductId: Map<Long, Boolean>,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
     onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
     modifier: Modifier = Modifier
@@ -336,6 +348,8 @@ private fun ProductsGrid(
     ) {
         items(products) { product ->
             val orderedQty = cartQtyByProductId[product.id] ?: 0
+            val hasModifiers = hasModifiersByProductId[product.id] == true
+            val isConfigured = cartConfiguredByProductId[product.id] == true
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -379,6 +393,27 @@ private fun ProductsGrid(
                                 )
                             }
                         }
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (hasModifiers) {
+                                BadgeLabel(
+                                    text = "+ opcije",
+                                    background = Color(0xFF1E88E5),
+                                    textColor = Color.White
+                                )
+                            }
+                            if (isConfigured) {
+                                BadgeLabel(
+                                    text = "konfigurirano",
+                                    background = Color(0xFF2E7D32),
+                                    textColor = Color.White
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = product.name,
@@ -397,51 +432,145 @@ private fun ProductsGrid(
 }
 
 @Composable
-private fun QtyDialog(
-    product: AddItemViewModel.ProductUi,
-    qty: Int,
-    isSubmitting: Boolean,
-    onQtyChanged: (Int) -> Unit,
-    onDismiss: () -> Unit,
-    onAdd: () -> Unit
+private fun BadgeLabel(
+    text: String,
+    background: Color,
+    textColor: Color
 ) {
+    Box(
+        modifier = Modifier
+            .background(background, RoundedCornerShape(10.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            style = MaterialTheme.typography.labelSmall
+        )
+    }
+}
+
+@Composable
+private fun ModifierDialog(
+    state: AddItemViewModel.UiState,
+    onDismiss: () -> Unit,
+    onNoteChanged: (String) -> Unit,
+    onSimpleToggle: (Long, Long) -> Unit,
+    onBundleQtyChange: (Long, Long, Int) -> Unit,
+    onConfirm: () -> Unit
+) {
+    val product = state.modifierDialogProduct ?: return
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(product.name) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = { onQtyChanged(-1) }, enabled = !isSubmitting) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (state.modifierDialogLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    state.modifierDialogGroups.forEach { group ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val maxLabel = group.maxSelect?.toString() ?: "∞"
+                                Text(
+                                    text = "${group.name} (${group.type.name.lowercase()})",
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = "Odabir: ${group.minSelect} - $maxLabel",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                group.options.forEach { option ->
+                                    when (group.type) {
+                                        ModifierType.SIMPLE -> {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { onSimpleToggle(group.id, option.id) },
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(option.name)
+                                                Checkbox(
+                                                    checked = option.selected,
+                                                    onCheckedChange = { onSimpleToggle(group.id, option.id) }
+                                                )
+                                            }
+                                        }
+
+                                        ModifierType.BUNDLE -> {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(option.name)
+                                                    Text(
+                                                        text = "+${formatAmount(option.priceDelta)} EUR",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    TextButton(onClick = { onBundleQtyChange(group.id, option.id, -1) }) { Text("-") }
+                                                    Text(option.quantity.toString())
+                                                    TextButton(onClick = { onBundleQtyChange(group.id, option.id, 1) }) { Text("+") }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (state.modifierDialogPricePreview != null) {
+                        val delta = state.modifierDialogDelta ?: 0.0
                         Text(
-                            text = "-",
-                            style = MaterialTheme.typography.headlineMedium
+                            text = "Finalna cijena: ${formatAmount(state.modifierDialogPricePreview)} EUR (Δ ${formatAmount(delta)} EUR)",
+                            style = MaterialTheme.typography.titleSmall
                         )
                     }
-                    Text(
-                        text = "$qty",
-                        style = MaterialTheme.typography.headlineSmall
+
+                    OutlinedTextField(
+                        value = state.modifierDialogNote,
+                        onValueChange = onNoteChanged,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Napomena") },
+                        minLines = 2
                     )
-                    TextButton(onClick = { onQtyChanged(1) }, enabled = !isSubmitting) {
-                        Text(
-                            text = "+",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                    }
                 }
             }
         },
         confirmButton = {
-            Button(onClick = onAdd, enabled = !isSubmitting) {
-                Text("Add", style = MaterialTheme.typography.titleMedium)
+            Button(onClick = onConfirm, enabled = !state.modifierDialogLoading) {
+                Text("Confirm")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !isSubmitting) {
-                Text("Cancel", style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onDismiss, enabled = !state.modifierDialogLoading) {
+                Text("Odustani")
             }
         }
     )
@@ -531,6 +660,15 @@ private fun OrderReviewScreen(
                                     "${formatAmount(item.unitPrice)} EUR / kom",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                if (item.displayLines.isNotEmpty()) {
+                                    item.displayLines.forEach { line ->
+                                        Text(
+                                            line,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -539,7 +677,10 @@ private fun OrderReviewScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         TextButton(onClick = { onDecrease(item) }, enabled = !isSubmitting) { Text("-") }
                                         Text("${item.qty}")
-                                        TextButton(onClick = { onIncrease(item) }, enabled = !isSubmitting) { Text("+") }
+                                        TextButton(
+                                            onClick = { onIncrease(item) },
+                                            enabled = !isSubmitting && !item.isConfigured
+                                        ) { Text("+") }
                                     }
                                     TextButton(onClick = { onRemove(item) }, enabled = !isSubmitting) {
                                         Text("Ukloni")

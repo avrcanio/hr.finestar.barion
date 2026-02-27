@@ -537,6 +537,10 @@ class CheckViewModel @Inject constructor(
     }
 
     fun onFree() {
+        if (_uiState.value.status.equals("FREE", ignoreCase = true)) {
+            _uiState.update { it.copy(message = "Check je već zatvoren.") }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isMutating = true, message = null) }
             runCatching {

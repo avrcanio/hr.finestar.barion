@@ -50,6 +50,18 @@ object CheckItemsMapper {
                 val sentAt = item.getString("sent_at")
                 val lineType = item.getString("line_type") ?: "NORMAL"
                 val note = item.getString("note")
+                val displayLines = item.getArray("display_lines")
+                    ?.mapNotNull { line ->
+                        runCatching {
+                            if (line.isJsonNull) null else line.asString
+                        }.getOrNull()
+                    }
+                    ?.filter { it.isNotBlank() }
+                    ?.toMutableList()
+                    ?: mutableListOf()
+                if (note != null && displayLines.none { it.contains(note, ignoreCase = true) }) {
+                    displayLines.add("• Napomena: $note")
+                }
                 // STORNO/GRATIS/OTPIS lines are operational/accounting lines and should not be sent to bar printer.
                 val sentToBar = if (lineType.uppercase() != "NORMAL") {
                     true
@@ -65,6 +77,7 @@ object CheckItemsMapper {
                     price = price,
                     lineType = lineType,
                     note = note,
+                    displayLines = displayLines,
                     roundNumber = roundNumber,
                     sentToBar = sentToBar,
                     sentAt = sentAt

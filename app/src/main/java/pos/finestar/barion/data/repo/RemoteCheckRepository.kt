@@ -16,6 +16,7 @@ import pos.finestar.barion.api.model.AddCheckItemRequestDto
 import pos.finestar.barion.api.model.ApiErrorDto
 import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CheckItemActionRequestDto
+import pos.finestar.barion.api.model.CheckItemModifierInputDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.SettlementPayCardConfirmRequestDto
@@ -41,6 +42,7 @@ import pos.finestar.barion.domain.model.SettlementState
 import pos.finestar.barion.domain.model.SettlementStateItem
 import pos.finestar.barion.domain.model.SettlementStatePart
 import pos.finestar.barion.domain.model.SettlementSelection
+import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.CheckRepository
 import retrofit2.HttpException
@@ -105,7 +107,9 @@ class RemoteCheckRepository @Inject constructor(
         productId: Long,
         qty: Int,
         unitPrice: Double,
-        productName: String?
+        productName: String?,
+        modifiers: List<SelectedModifier>,
+        note: String?
     ): CheckSession {
         try {
             api.addCheckItem(
@@ -116,7 +120,15 @@ class RemoteCheckRepository @Inject constructor(
                     productId = productId,
                     productName = productName,
                     quantity = formatDecimal(qty.toDouble()),
-                    unitPrice = formatDecimal(unitPrice)
+                    unitPrice = formatDecimal(unitPrice),
+                    modifiers = modifiers.takeIf { it.isNotEmpty() }?.map { modifier ->
+                        CheckItemModifierInputDto(
+                            type = modifier.type.name.lowercase(Locale.US),
+                            id = modifier.id,
+                            quantity = modifier.quantity
+                        )
+                    },
+                    note = note?.trim()?.takeIf { it.isNotBlank() }
                 )
             )
         } catch (httpException: HttpException) {
@@ -291,6 +303,7 @@ class RemoteCheckRepository @Inject constructor(
                             quantity = selection.qty.toString()
                         )
                     },
+                    issueReceipt = false,
                     currency = "EUR"
                 )
             )
@@ -336,6 +349,7 @@ class RemoteCheckRepository @Inject constructor(
                     clientTransactionId = clientTransactionId,
                     amount = formatMoney(amount),
                     tipAmount = formatMoney(tipAmount),
+                    issueReceipt = false,
                     currency = "EUR"
                 )
             )

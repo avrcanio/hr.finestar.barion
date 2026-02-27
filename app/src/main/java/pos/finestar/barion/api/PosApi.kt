@@ -9,6 +9,7 @@ import pos.finestar.barion.api.model.CheckDto
 import pos.finestar.barion.api.model.CheckItemActionRequestDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
+import pos.finestar.barion.api.model.BundlePriceRequestDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.MeResponseDto
 import pos.finestar.barion.api.model.PinLoginRequestDto
@@ -74,6 +75,17 @@ interface PosApi {
         @Query("limit") limit: Int? = 100,
         @Query("sort") sort: String? = "popular"
     ): JsonElement
+
+    @GET("/api/pos/products/{artiklId}/modifiers/")
+    suspend fun getProductModifiers(
+        @Path("artiklId") artiklId: Long
+    ): JsonObject
+
+    @POST("/api/pos/products/{artiklId}/bundle-price/")
+    suspend fun previewBundlePrice(
+        @Path("artiklId") artiklId: Long,
+        @Body request: BundlePriceRequestDto
+    ): JsonObject
 
     @GET("/api/artikli/")
     suspend fun getArtikli(

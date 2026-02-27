@@ -2,6 +2,7 @@ package pos.finestar.barion.domain.usecase
 
 import javax.inject.Inject
 import pos.finestar.barion.domain.model.CheckSession
+import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.repo.CheckRepository
 
 class AddItemToCheckUseCase @Inject constructor(
@@ -12,14 +13,18 @@ class AddItemToCheckUseCase @Inject constructor(
         productId: Long,
         qty: Int,
         unitPrice: Double,
-        productName: String? = null
+        productName: String? = null,
+        modifiers: List<SelectedModifier> = emptyList(),
+        note: String? = null
     ): CheckSession {
         return repository.addItem(
             checkId = checkId,
             productId = productId,
             qty = qty,
             unitPrice = unitPrice,
-            productName = productName
+            productName = productName,
+            modifiers = modifiers,
+            note = note
         )
     }
 }
