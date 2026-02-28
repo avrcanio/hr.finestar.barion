@@ -6,7 +6,60 @@ plugins {
 }
 
 android {
-    val apiBaseUrl = (project.findProperty("BARION_API_BASE_URL") as String?) ?: "https://mozart.sibenik1983.hr/"
+    val envValues = run {
+        val file = rootProject.file(".env")
+        if (!file.exists()) {
+            emptyMap()
+        } else {
+            file.readLines()
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") && it.contains("=") }
+                .associate { line ->
+                    val idx = line.indexOf('=')
+                    val key = line.substring(0, idx).trim()
+                    val rawValue = line.substring(idx + 1).trim()
+                    val value = rawValue.removeSurrounding("\"").removeSurrounding("'")
+                    key to value
+                }
+        }
+    }
+
+    fun propertyOrEnv(name: String, defaultValue: String): String {
+        val projectValue = (project.findProperty(name) as String?)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        if (projectValue != null) return projectValue
+        return envValues[name]
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: defaultValue
+    }
+
+    val apiBaseUrl = propertyOrEnv("BARION_API_BASE_URL", "https://mozart.sibenik1983.hr/")
+    val vivaMerchantId = propertyOrEnv("VIVA_MERCHANT_ID", "")
+    val vivaApiKey = propertyOrEnv("VIVA_API_KEY", "")
+    val vivaPosClientId = propertyOrEnv("VIVA_POS_CLIENT_ID", "")
+    val vivaPosClientSecret = propertyOrEnv("VIVA_POS_CLIENT_SECRET", "")
+    val vivaProviderMode = propertyOrEnv("VIVA_PROVIDER_MODE", "APP2APP")
+    val vivaEnv = propertyOrEnv("VIVA_ENV", "DEMO")
+    val vivaObligationsBaseUrl = propertyOrEnv("VIVA_OBLIGATIONS_BASE_URL", "https://demo-api.vivapayments.com/")
+    val vivaObligationsSourceCode = propertyOrEnv("VIVA_OBLIGATIONS_SOURCE_CODE", "")
+    val vivaObligationsMerchantId = propertyOrEnv("VIVA_OBLIGATIONS_MERCHANT_ID", vivaMerchantId)
+    val vivaObligationsPersonId = propertyOrEnv("VIVA_OBLIGATIONS_PERSON_ID", vivaObligationsMerchantId)
+    val vivaObligationsWalletId = propertyOrEnv("VIVA_OBLIGATIONS_WALLET_ID", "")
+    val vivaObligationsBearerToken = propertyOrEnv("VIVA_OBLIGATIONS_BEARER_TOKEN", "")
+    val vivaCallbackScheme = propertyOrEnv("VIVA_CALLBACK_SCHEME", "barionviva")
+    val vivaCallbackHost = propertyOrEnv("VIVA_CALLBACK_HOST", "result")
+    val vivaTerminalPackage = propertyOrEnv("VIVA_TERMINAL_PACKAGE", "com.vivawallet.spoc.payapp.demo")
+    val vivaCallbackTimeoutMs = propertyOrEnv("VIVA_CALLBACK_TIMEOUT_MS", "45000")
+
+    fun asBuildConfigString(value: String): String {
+        val escaped = value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        return "\"$escaped\""
+    }
 
     namespace = "pos.finestar.barion"
     compileSdk = 35
@@ -15,11 +68,29 @@ android {
         applicationId = "pos.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 100
-        versionName = "1.100"
+        versionCode = 125
+        versionName = "1.125"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
+        buildConfigField("String", "VIVA_MERCHANT_ID", asBuildConfigString(vivaMerchantId))
+        buildConfigField("String", "VIVA_API_KEY", asBuildConfigString(vivaApiKey))
+        buildConfigField("String", "VIVA_POS_CLIENT_ID", asBuildConfigString(vivaPosClientId))
+        buildConfigField("String", "VIVA_POS_CLIENT_SECRET", asBuildConfigString(vivaPosClientSecret))
+        buildConfigField("String", "VIVA_PROVIDER_MODE", asBuildConfigString(vivaProviderMode))
+        buildConfigField("String", "VIVA_ENV", asBuildConfigString(vivaEnv))
+        buildConfigField("String", "VIVA_OBLIGATIONS_BASE_URL", asBuildConfigString(vivaObligationsBaseUrl))
+        buildConfigField("String", "VIVA_OBLIGATIONS_SOURCE_CODE", asBuildConfigString(vivaObligationsSourceCode))
+        buildConfigField("String", "VIVA_OBLIGATIONS_MERCHANT_ID", asBuildConfigString(vivaObligationsMerchantId))
+        buildConfigField("String", "VIVA_OBLIGATIONS_PERSON_ID", asBuildConfigString(vivaObligationsPersonId))
+        buildConfigField("String", "VIVA_OBLIGATIONS_WALLET_ID", asBuildConfigString(vivaObligationsWalletId))
+        buildConfigField("String", "VIVA_OBLIGATIONS_BEARER_TOKEN", asBuildConfigString(vivaObligationsBearerToken))
+        buildConfigField("String", "VIVA_CALLBACK_SCHEME", asBuildConfigString(vivaCallbackScheme))
+        buildConfigField("String", "VIVA_CALLBACK_HOST", asBuildConfigString(vivaCallbackHost))
+        buildConfigField("String", "VIVA_TERMINAL_PACKAGE", asBuildConfigString(vivaTerminalPackage))
+        buildConfigField("int", "VIVA_CALLBACK_TIMEOUT_MS", vivaCallbackTimeoutMs)
+        manifestPlaceholders["VIVA_CALLBACK_SCHEME"] = vivaCallbackScheme
+        manifestPlaceholders["VIVA_CALLBACK_HOST"] = vivaCallbackHost
     }
 
     buildTypes {

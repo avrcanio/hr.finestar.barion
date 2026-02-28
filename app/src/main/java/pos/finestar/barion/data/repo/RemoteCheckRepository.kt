@@ -27,6 +27,9 @@ import pos.finestar.barion.api.model.SettlementPrepareRequestDto
 import pos.finestar.barion.api.model.UpdateCheckItemQtyRequestDto
 import pos.finestar.barion.data.local.ApiCacheDao
 import pos.finestar.barion.data.local.ApiCacheEntity
+import pos.finestar.barion.data.payment.viva.VivaPaymentAdapter
+import pos.finestar.barion.data.payment.viva.VivaRequestMapper
+import pos.finestar.barion.data.payment.viva.VivaSaleResult
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckRoundState
 import pos.finestar.barion.domain.model.CheckRoundStateItem
@@ -51,7 +54,9 @@ import retrofit2.HttpException
 class RemoteCheckRepository @Inject constructor(
     private val api: PosApi,
     private val gson: Gson,
-    private val apiCacheDao: ApiCacheDao
+    private val apiCacheDao: ApiCacheDao,
+    private val vivaRequestMapper: VivaRequestMapper,
+    private val vivaPaymentAdapter: VivaPaymentAdapter
 ) : CheckRepository {
     companion object {
         private const val TAG = "RemoteCheckRepo"
@@ -254,7 +259,7 @@ class RemoteCheckRepository @Inject constructor(
     ): SettlementPrepareResult {
         Log.d(
             TAG,
-            "prepareSettlementPart request checkId=$checkId method=${method.name} amount=${amount?.let { formatMoney(it) }} remainingTotal=${remainingTotal?.let { formatMoney(it) }} selections=${selections.joinToString { "${it.checkItemId}:${it.qty}" }}"
+            "prepareSettlementPart request checkId=$checkId method=${method.name} amount=${amount?.let { formatMoney(it) }} tip=${formatMoney(tipAmount)} remainingTotal=${remainingTotal?.let { formatMoney(it) }} selections=${selections.joinToString { "${it.checkItemId}:${it.qty}" }}"
         )
         val payload = try {
             val resolvedAmount = amount ?: throw IllegalStateException("Nedostaje amount za prepare-settlement.")
@@ -276,7 +281,7 @@ class RemoteCheckRepository @Inject constructor(
         return payload.toPrepareResult().also { result ->
             Log.d(
                 TAG,
-                "prepareSettlementPart response checkId=$checkId partId=${result.part.partId} amount=${formatMoney(result.part.amount)} status=${result.part.status}"
+                "prepareSettlementPart response checkId=$checkId partId=${result.part.partId} amount=${formatMoney(result.part.amount)} tip=${formatMoney(result.part.tipAmount)} status=${result.part.status}"
             )
         }
     }
@@ -334,32 +339,105 @@ class RemoteCheckRepository @Inject constructor(
         providerRef: String,
         clientTransactionId: String
     ): SettlementPart {
+        val confirmPartId = resolveCardConfirmPartId(
+            checkId = checkId,
+            requestedPartId = partId,
+            requestedTipAmount = tipAmount
+        )
+        if (confirmPartId != partId) {
+            Log.w(
+                TAG,
+                "confirmSettlementPartCard remapped partId checkId=$checkId requestedPartId=$partId resolvedPartId=$confirmPartId"
+            )
+        }
+        val saleRequest = vivaRequestMapper.map(
+            checkId = checkId,
+            partId = confirmPartId,
+            amount = amount,
+            tipAmount = tipAmount,
+            clientTransactionId = clientTransactionId
+        )
         Log.d(
             TAG,
-            "confirmSettlementPartCard request checkId=$checkId partId=$partId approved=$approved amount=${formatMoney(amount)} tip=${formatMoney(tipAmount)} providerRef=$providerRef"
+            "confirmSettlementPartCard request checkId=$checkId partId=$confirmPartId approved=$approved amountCents=${saleRequest.amountCents} tipCents=${saleRequest.tipAmountCents} clientTxn=${saleRequest.clientTransactionId}"
+        )
+        val saleResult = if (approved) {
+            Log.i(
+                TAG,
+                "confirmSettlementPartCard invoking viva adapter checkId=$checkId partId=$confirmPartId clientTxn=${saleRequest.clientTransactionId}"
+            )
+            runCatching { vivaPaymentAdapter.sale(saleRequest) }
+                .getOrElse { error ->
+                    Log.e(
+                        TAG,
+                        "confirmSettlementPartCard viva adapter failed checkId=$checkId partId=$confirmPartId clientTxn=${saleRequest.clientTransactionId} message=${error.message}",
+                        error
+                    )
+                    throw IllegalStateException("Viva sale failed: ${error.message}", error)
+                }
+        } else {
+            VivaSaleResult(
+                approved = false,
+                providerRef = providerRef.ifBlank { "manual-declined-$checkId-$partId" },
+                externalTransactionId = saleRequest.clientTransactionId
+            )
+        }
+        Log.d(
+            TAG,
+            "confirmSettlementPartCard sale result checkId=$checkId partId=$confirmPartId approved=${saleResult.approved} providerRef=${saleResult.providerRef}"
+        )
+        Log.i(
+            TAG,
+            "confirmSettlementPartCard backend confirm request checkId=$checkId partId=$confirmPartId approved=${saleResult.approved} providerRef=${saleResult.providerRef} externalTxn=${saleResult.externalTransactionId ?: saleRequest.clientTransactionId} amount=${formatMoneyFromCents(saleRequest.amountCents)} tip=${formatMoneyFromCents(saleRequest.tipAmountCents)} currency=${saleRequest.currency}"
         )
         val payload = try {
             api.confirmSettlementPartCard(
                 checkId = checkId,
-                partId = partId,
+                partId = confirmPartId,
                 request = SettlementPayCardConfirmRequestDto(
-                    approved = approved,
-                    providerRef = providerRef,
-                    externalTxnId = clientTransactionId,
-                    clientTransactionId = clientTransactionId,
-                    amount = formatMoney(amount),
-                    tipAmount = formatMoney(tipAmount),
+                    approved = saleResult.approved,
+                    providerRef = saleResult.providerRef,
+                    externalTxnId = saleResult.externalTransactionId ?: saleRequest.clientTransactionId,
+                    clientTransactionId = saleRequest.clientTransactionId,
+                    amount = formatMoneyFromCents(saleRequest.amountCents),
+                    tipAmount = formatMoneyFromCents(saleRequest.tipAmountCents),
                     issueReceipt = false,
-                    currency = "EUR"
+                    currency = saleRequest.currency,
+                    rrn = saleResult.rrn,
+                    referenceNumber = saleResult.referenceNumber,
+                    authorisationCode = saleResult.authorisationCode,
+                    tid = saleResult.tid,
+                    orderCode = saleResult.orderCode,
+                    shortOrderCode = saleResult.shortOrderCode,
+                    transactionDate = saleResult.transactionDate,
+                    paymentMethod = saleResult.paymentMethod,
+                    cardType = saleResult.cardType,
+                    accountNumber = saleResult.accountNumber,
+                    verificationMethod = saleResult.verificationMethod,
+                    aid = saleResult.aid,
+                    bankId = saleResult.bankId,
+                    transactionTypeId = saleResult.transactionTypeId,
+                    transactionEventId = saleResult.transactionEventId,
+                    surchargeAmount = saleResult.surchargeAmount,
+                    customerTrns = saleResult.customerTrns,
+                    providerStatus = saleResult.status,
+                    providerAction = saleResult.action,
+                    providerMessage = saleResult.errorMessage,
+                    providerPayload = saleResult.providerPayload.takeIf { it.isNotEmpty() }
                 )
             )
         } catch (httpException: HttpException) {
+            Log.e(
+                TAG,
+                "confirmSettlementPartCard backend confirm failed checkId=$checkId partId=$confirmPartId message=${httpException.message()}",
+                httpException
+            )
             throw mapHttpException(httpException, defaultMessage = "Card potvrda nije uspjela.")
         }
         return payload.toSettlementPart().also { result ->
             Log.d(
                 TAG,
-                "confirmSettlementPartCard response checkId=$checkId requestPartId=$partId resultPartId=${result.partId} amount=${formatMoney(result.amount)} status=${result.status} action=${result.action}"
+                "confirmSettlementPartCard response checkId=$checkId requestPartId=$confirmPartId resultPartId=${result.partId} amount=${formatMoney(result.amount)} status=${result.status} action=${result.action}"
             )
         }
     }
@@ -469,7 +547,21 @@ class RemoteCheckRepository @Inject constructor(
 
     private fun mapHttpException(httpException: HttpException, defaultMessage: String): IllegalStateException {
         val detail = parseErrorDetail(httpException.response()?.errorBody())
-        val message = detail ?: when (val code = httpException.code()) {
+        val normalizedDetail = detail
+            ?.replace(Regex("\\s+"), " ")
+            ?.trim()
+        val mappedDetail = when {
+            normalizedDetail.isNullOrBlank() -> null
+            normalizedDetail.contains("tip_amount", ignoreCase = true) &&
+                normalizedDetail.contains("mora biti jednak", ignoreCase = true) ->
+                "Napojnica nije usklađena s pripremljenim partom. Pokušaj ponovno."
+            normalizedDetail.contains("tip", ignoreCase = true) &&
+                normalizedDetail.contains("veći", ignoreCase = true) &&
+                normalizedDetail.contains("iznos", ignoreCase = true) ->
+                "Napojnica ne može biti veća od iznosa naplate."
+            else -> normalizedDetail
+        }
+        val message = mappedDetail ?: when (val code = httpException.code()) {
             in 400..499 -> "Zahtjev je odbijen (HTTP $code)."
             in 500..599 -> "Serverska greska (HTTP $code)."
             else -> defaultMessage
@@ -503,8 +595,60 @@ class RemoteCheckRepository @Inject constructor(
         }.getOrNull()
     }
 
+    private suspend fun resolveCardConfirmPartId(
+        checkId: Long,
+        requestedPartId: Long,
+        requestedTipAmount: Double
+    ): Long {
+        val settlementState = runCatching { getSettlementState(checkId) }
+            .getOrElse { error ->
+                Log.w(
+                    TAG,
+                    "resolveCardConfirmPartId settlement-state fetch failed checkId=$checkId requestedPartId=$requestedPartId message=${error.message}"
+                )
+                return requestedPartId
+            }
+
+        val requestedPart = settlementState.parts.firstOrNull { it.partId == requestedPartId }
+        if (requestedPart?.isCardConfirmCandidate(requestedTipAmount) == true) {
+            return requestedPartId
+        }
+
+        val exactCandidate = settlementState.parts.firstOrNull {
+            it.isCardConfirmCandidate(requestedTipAmount)
+        }?.partId
+        if (exactCandidate != null) return exactCandidate
+
+        val methodOnlyCandidate = settlementState.parts.firstOrNull {
+            it.isCardConfirmMethodCandidate()
+        }?.partId
+        if (methodOnlyCandidate != null) return methodOnlyCandidate
+
+        val requestedMethod = requestedPart?.method?.name ?: "UNKNOWN"
+        throw IllegalStateException(
+            "Nije pronađen pripremljeni CARD part za confirm. Traženi part=$requestedPartId method=$requestedMethod."
+        )
+    }
+
+    private fun SettlementStatePart.isCardConfirmCandidate(requestedTipAmount: Double): Boolean {
+        return isCardConfirmMethodCandidate() && sameMoneyInCents(this.tipAmount ?: 0.0, requestedTipAmount)
+    }
+
+    private fun SettlementStatePart.isCardConfirmMethodCandidate(): Boolean {
+        if (method != SettlementMethod.CARD) return false
+        val normalized = status.uppercase(Locale.US)
+        return normalized == "PREPARED" || normalized == "FAILED"
+    }
+
+    private fun sameMoneyInCents(left: Double, right: Double): Boolean {
+        val leftCents = kotlin.math.round(left * 100.0).toLong()
+        val rightCents = kotlin.math.round(right * 100.0).toLong()
+        return leftCents == rightCents
+    }
+
     private fun formatDecimal(value: Double): String = String.format(Locale.US, "%.4f", value)
     private fun formatMoney(value: Double): String = String.format(Locale.US, "%.2f", value)
+    private fun formatMoneyFromCents(cents: Long): String = formatMoney(cents / 100.0)
 
     private fun buildPrepareParts(
         method: SettlementMethod,
@@ -923,9 +1067,15 @@ class RemoteCheckRepository @Inject constructor(
                     method = part.getString("method")
                         ?.uppercase(Locale.US)
                         ?.toSettlementMethodOrNull(),
+                    methodDisplay = part.getString("method_display"),
                     amount = part.getMoneyStrict("amount", "settlement-state.parts[].amount")
                         ?: part.getMoneyStrict("total", "settlement-state.parts[].total")
-                        ?: part.getMoneyStrict("total_amount", "settlement-state.parts[].total_amount")
+                        ?: part.getMoneyStrict("total_amount", "settlement-state.parts[].total_amount"),
+                    tipAmount = part.getMoneyStrict("tip_amount", "settlement-state.parts[].tip_amount"),
+                    issuedReceiptId = part.getLong("issued_receipt_id")
+                        ?: part.getObject("receipt")?.getLong("id"),
+                    cardBrand = part.getString("card_brand"),
+                    cardMaskedPan = part.getString("card_masked_pan")
                 )
             }
     }
@@ -1025,7 +1175,10 @@ class RemoteCheckRepository @Inject constructor(
                         ?: receipt.getMoneyStrict("amount", "settlement-state.receipts[].amount")
                         ?: receipt.getMoneyStrict("total", "settlement-state.receipts[].total"),
                     status = receipt.getString("status"),
-                    pdfUrl = receipt.getString("pdf_url")
+                    pdfUrl = receipt.getString("pdf_url"),
+                    paymentMethod = receipt.getString("payment_method"),
+                    cardBrand = receipt.getString("card_brand"),
+                    cardMaskedPan = receipt.getString("card_masked_pan")
                 )
             }
     }

@@ -74,7 +74,10 @@ data class SettlementReceipt(
     val receiptNumber: Int? = null,
     val totalAmount: Double? = null,
     val status: String? = null,
-    val pdfUrl: String? = null
+    val pdfUrl: String? = null,
+    val paymentMethod: String? = null,
+    val cardBrand: String? = null,
+    val cardMaskedPan: String? = null
 )
 
 data class FiscalizeReceiptResult(
@@ -109,7 +112,12 @@ data class SettlementStatePart(
     val partId: Long,
     val status: String,
     val method: SettlementMethod? = null,
-    val amount: Double? = null
+    val methodDisplay: String? = null,
+    val amount: Double? = null,
+    val tipAmount: Double? = null,
+    val issuedReceiptId: Long? = null,
+    val cardBrand: String? = null,
+    val cardMaskedPan: String? = null
 )
 
 data class CheckRoundState(

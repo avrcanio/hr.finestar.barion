@@ -1,9 +1,12 @@
 package pos.finestar.barion.check
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.abs
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -18,6 +21,7 @@ import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckRoundStateItem
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.SettlementMethod
+import pos.finestar.barion.domain.model.SettlementStatePart
 import pos.finestar.barion.domain.model.SettlementPartStatus
 import pos.finestar.barion.domain.model.SettlementReceipt
 import pos.finestar.barion.domain.model.SettlementSelection
@@ -59,6 +63,9 @@ class CheckViewModel @Inject constructor(
     private val getCheckRoundStateUseCase: GetCheckRoundStateUseCase,
     private val authRepository: AuthRepository
 ) : ViewModel() {
+    companion object {
+        private const val TAG = "CheckViewModel"
+    }
 
     data class PaymentItemUi(
         val checkItemId: Long,
@@ -357,8 +364,11 @@ class CheckViewModel @Inject constructor(
             _uiState.update { it.copy(message = "Račun je već podmiren.") }
             return
         }
-        val existing = _uiState.value.paymentFlow.payableItems
-        val paymentItems = if (existing.isEmpty()) buildPaymentItems(_uiState.value.items) else existing
+        val state = _uiState.value
+        val paymentItems = buildPaymentItems(
+            items = state.items,
+            remainingByItemId = state.settlementRemainingByItemId
+        )
         if (paymentItems.none { it.remainingQty > 0 }) {
             _uiState.update { it.copy(message = "Nema preostalih stavki za naplatu.") }
             return
@@ -376,7 +386,7 @@ class CheckViewModel @Inject constructor(
     }
 
     fun onDismissPaymentChoice() {
-        _uiState.update { it.copy(paymentFlow = it.paymentFlow.copy(showChoiceDialog = false)) }
+        resetPaymentFlow()
     }
 
     fun onStartFullPayment() {
@@ -388,7 +398,18 @@ class CheckViewModel @Inject constructor(
             _uiState.update { it.copy(message = "Nema preostalih stavki za naplatu.") }
             return
         }
-        preparePart(selections = selections, payNow = false, partLabelPrefix = "Full")
+        val totalAmount = calculateSelectionAmount(selections)
+        _uiState.update { state ->
+            state.copy(
+                paymentFlow = state.paymentFlow.copy(
+                    showChoiceDialog = false,
+                    showMethodDialog = true,
+                    methodTargetPartId = 0L,
+                    methodTargetAmount = totalAmount,
+                    methodTargetLabel = "Full"
+                )
+            )
+        }
     }
 
     fun onStartSplitPayment() {
@@ -397,11 +418,10 @@ class CheckViewModel @Inject constructor(
             _uiState.update { it.copy(message = "Split nije dostupan za jednu stavku/količinu.") }
             return
         }
-        val paymentItems = if (current.paymentFlow.payableItems.isEmpty()) {
-            buildPaymentItems(current.items)
-        } else {
-            current.paymentFlow.payableItems
-        }
+        val paymentItems = buildPaymentItems(
+            items = current.items,
+            remainingByItemId = current.settlementRemainingByItemId
+        )
         if (paymentItems.none { it.remainingQty > 0 }) {
             _uiState.update { it.copy(message = "Nema preostalih stavki za split.") }
             return
@@ -419,15 +439,7 @@ class CheckViewModel @Inject constructor(
     }
 
     fun onDismissSplitDialog() {
-        _uiState.update {
-            it.copy(
-                paymentFlow = it.paymentFlow.copy(
-                    showSplitDialog = false,
-                    isSplitSummary = false,
-                    payableItems = it.paymentFlow.payableItems.map { paymentItem -> paymentItem.copy(selectedQty = 0) }
-                )
-            )
-        }
+        resetPaymentFlow()
     }
 
     fun onSplitQtyIncrease(checkItemId: Long) {
@@ -476,50 +488,63 @@ class CheckViewModel @Inject constructor(
     }
 
     fun onDismissMethodDialog() {
-        _uiState.update {
-            it.copy(
-                paymentFlow = it.paymentFlow.copy(
-                    showMethodDialog = false,
-                    methodTargetPartId = null,
-                    methodTargetAmount = 0.0,
-                    methodTargetLabel = ""
-                )
-            )
-        }
+        resetPaymentFlow()
     }
 
     fun onChooseCash() {
         val target = _uiState.value.paymentFlow.methodTargetPartId ?: return
         val amount = _uiState.value.paymentFlow.methodTargetAmount
+        Log.i(TAG, "onChooseCash checkId=$checkId partId=$target amount=$amount")
         settlePart(
             partId = target,
             method = SettlementMethod.CASH,
             isFullTarget = _uiState.value.paymentFlow.methodTargetLabel == "Full",
             action = {
+                val resolvedPartId = resolvePartIdForMethod(
+                    preferredPartId = target,
+                    amount = amount,
+                    method = SettlementMethod.CASH,
+                    tipAmount = 0.0
+                )
                 paySettlementPartCashUseCase(
                     checkId = checkId,
-                    partId = target,
+                    partId = resolvedPartId,
                     amount = amount
                 )
             }
         )
     }
 
-    fun onChooseCard() {
+    fun onChooseCard(tipAmount: Double) {
         val target = _uiState.value.paymentFlow.methodTargetPartId ?: return
         val amount = _uiState.value.paymentFlow.methodTargetAmount
+        val normalizedTip = normalizeMoney(tipAmount)
+        if (normalizedTip > amount) {
+            _uiState.update { it.copy(message = "Napojnica ne može biti veća od iznosa naplate.") }
+            return
+        }
         val providerRef = "debug-${System.currentTimeMillis()}"
         val clientTransactionId = "check-${checkId}-part-${target}-${System.currentTimeMillis()}"
+        Log.i(
+            TAG,
+            "onChooseCard checkId=$checkId partId=$target amount=$amount tip=$normalizedTip providerRef=$providerRef clientTxn=$clientTransactionId"
+        )
         settlePart(
             partId = target,
             method = SettlementMethod.CARD,
             isFullTarget = _uiState.value.paymentFlow.methodTargetLabel == "Full",
             action = {
+                val resolvedPartId = resolvePartIdForMethod(
+                    preferredPartId = target,
+                    amount = amount,
+                    method = SettlementMethod.CARD,
+                    tipAmount = normalizedTip
+                )
                 confirmSettlementPartCardUseCase(
                     checkId = checkId,
-                    partId = target,
+                    partId = resolvedPartId,
                     amount = amount,
-                    tipAmount = 0.0,
+                    tipAmount = normalizedTip,
                     approved = true,
                     providerRef = providerRef,
                     clientTransactionId = clientTransactionId
@@ -710,14 +735,23 @@ class CheckViewModel @Inject constructor(
         isFullTarget: Boolean,
         action: suspend () -> pos.finestar.barion.domain.model.SettlementPart
     ) {
+        Log.i(TAG, "settlePart start checkId=$checkId partId=$partId method=${method.name} isFullTarget=$isFullTarget")
         viewModelScope.launch {
             _uiState.update { it.copy(isMutating = true, message = null) }
             runCatching { action() }
                 .onSuccess { settled ->
+                    val resolvedPartId = settled.partId.takeIf { it > 0L } ?: partId
+                    Log.i(
+                        TAG,
+                        "settlePart success checkId=$checkId partId=$partId resolvedPartId=$resolvedPartId method=${method.name} status=${settled.status} action=${settled.action} amount=${settled.amount}"
+                    )
                     _uiState.update { state ->
+                        var matched = false
                         val updatedParts = state.paymentFlow.splitParts.map { part ->
-                            if (part.partId == partId) {
+                            if (part.partId == resolvedPartId || part.partId == partId) {
+                                matched = true
                                 part.copy(
+                                    partId = resolvedPartId,
                                     amount = settled.amount,
                                     status = settled.status,
                                     method = method
@@ -725,6 +759,17 @@ class CheckViewModel @Inject constructor(
                             } else {
                                 part
                             }
+                        }
+                        val mergedParts = if (matched) {
+                            updatedParts
+                        } else {
+                            updatedParts + SplitPartUi(
+                                partId = resolvedPartId,
+                                label = state.paymentFlow.methodTargetLabel.ifBlank { "Part" },
+                                amount = settled.amount,
+                                status = settled.status,
+                                method = method
+                            )
                         }
                         state.copy(
                             isMutating = false,
@@ -736,7 +781,7 @@ class CheckViewModel @Inject constructor(
                                 else -> null
                             },
                             paymentFlow = state.paymentFlow.copy(
-                                splitParts = updatedParts,
+                                splitParts = mergedParts,
                                 showMethodDialog = false,
                                 methodTargetPartId = null,
                                 methodTargetAmount = 0.0,
@@ -762,6 +807,11 @@ class CheckViewModel @Inject constructor(
                     }
                 }
                 .onFailure { throwable ->
+                    Log.e(
+                        TAG,
+                        "settlePart failed checkId=$checkId partId=$partId method=${method.name} message=${throwable.message}",
+                        throwable
+                    )
                     _uiState.update {
                         it.copy(
                             isMutating = false,
@@ -771,6 +821,76 @@ class CheckViewModel @Inject constructor(
                     }
                 }
         }
+    }
+
+    private suspend fun resolvePartIdForMethod(
+        preferredPartId: Long,
+        amount: Double,
+        method: SettlementMethod,
+        tipAmount: Double
+    ): Long {
+        val state = runCatching { getSettlementStateUseCase(checkId) }.getOrNull()
+        val preferredPart = state
+            ?.parts
+            ?.firstOrNull { it.partId == preferredPartId }
+        if (preferredPart != null && preferredPart.isReusableFor(method, tipAmount)) {
+            Log.i(
+                TAG,
+                "resolvePartIdForMethod reused preferred checkId=$checkId preferredPartId=$preferredPartId method=${method.name} tip=${"%.2f".format(tipAmount)}"
+            )
+            return preferredPartId
+        }
+        if (
+            preferredPart != null &&
+            method == SettlementMethod.CARD &&
+            preferredPart.method == SettlementMethod.CARD &&
+            !sameMoneyInCents(preferredPart.tipAmount ?: 0.0, tipAmount)
+        ) {
+            Log.i(
+                TAG,
+                "resolvePartIdForMethod reprepare_due_tip_mismatch checkId=$checkId preferredPartId=$preferredPartId existingTip=${"%.2f".format(preferredPart.tipAmount ?: 0.0)} requestedTip=${"%.2f".format(tipAmount)}"
+            )
+        }
+        val reusable = state
+            ?.parts
+            ?.firstOrNull { it.isReusableFor(method, tipAmount) }
+            ?.partId
+        if (reusable != null && reusable > 0L) {
+            Log.i(
+                TAG,
+                "resolvePartIdForMethod reused checkId=$checkId preferredPartId=$preferredPartId resolvedPartId=$reusable method=${method.name} tip=${"%.2f".format(tipAmount)}"
+            )
+            return reusable
+        }
+
+        val prepared = prepareSettlementPartUseCase(
+            checkId = checkId,
+            selections = emptyList(),
+            amount = amount,
+            method = method,
+            tipAmount = tipAmount,
+            remainingTotal = state?.remainingTotal
+        )
+        val refreshedState = runCatching { getSettlementStateUseCase(checkId) }.getOrNull()
+        val preparedPartId = refreshedState
+            ?.parts
+            ?.firstOrNull { it.isReusableFor(method, tipAmount) }
+            ?.partId
+            ?: prepared.part.partId.takeIf { it > 0L }
+            ?: preferredPartId
+        val preparedPartIsValidForMethod = refreshedState
+            ?.parts
+            ?.firstOrNull { it.partId == preparedPartId }
+            ?.isReusableFor(method, tipAmount)
+            ?: (prepared.part.method == method)
+        if (method == SettlementMethod.CARD && !preparedPartIsValidForMethod) {
+            throw IllegalStateException("Nije pronađen pripremljeni CARD part. Osvježi i pokušaj ponovno.")
+        }
+        Log.i(
+            TAG,
+            "resolvePartIdForMethod prepared checkId=$checkId preferredPartId=$preferredPartId resolvedPartId=$preparedPartId rawPreparedPartId=${prepared.part.partId} method=${method.name} amount=${"%.2f".format(amount)} tip=${"%.2f".format(tipAmount)}"
+        )
+        return preparedPartId
     }
 
     private fun closeCheckAfterSettlement() {
@@ -799,18 +919,28 @@ class CheckViewModel @Inject constructor(
         }
     }
 
-    private fun buildPaymentItems(items: List<CheckItem>): List<PaymentItemUi> {
+    private fun buildPaymentItems(
+        items: List<CheckItem>,
+        remainingByItemId: Map<Long, Int>
+    ): List<PaymentItemUi> {
         return items.asSequence()
             .filter { it.itemId != null }
             .filter { it.lineType.equals("NORMAL", ignoreCase = true) }
             .filter { it.qty > 0 }
-            .map { item ->
+            .mapNotNull { item ->
+                val itemId = item.itemId ?: return@mapNotNull null
+                val remainingQty = if (remainingByItemId.isNotEmpty()) {
+                    remainingByItemId[itemId] ?: 0
+                } else {
+                    item.qty
+                }
+                if (remainingQty <= 0) return@mapNotNull null
                 PaymentItemUi(
-                    checkItemId = item.itemId!!,
+                    checkItemId = itemId,
                     name = item.name,
                     price = item.price,
                     totalQty = item.qty,
-                    remainingQty = item.qty,
+                    remainingQty = remainingQty,
                     selectedQty = 0
                 )
             }
@@ -978,13 +1108,76 @@ class CheckViewModel @Inject constructor(
                 ?: settlementState.posReceiptId
                 ?: settlementState.posReceiptIds.lastOrNull()
             val shouldLockPayment = settlementState.shouldLockPayment
+            val paidParts = settlementState.parts
+                .filter { it.status.equals("PAID", ignoreCase = true) }
+            val paidPartsByReceiptId = paidParts
+                .mapNotNull { part -> part.issuedReceiptId?.let { receiptIdKey -> receiptIdKey to part } }
+                .toMap()
+            val unmatchedPaidParts = paidParts
+                .sortedByDescending { it.partId }
+                .toMutableList()
+            fun consumePart(part: SettlementStatePart?) {
+                if (part == null) return
+                val index = unmatchedPaidParts.indexOfFirst { it.partId == part.partId }
+                if (index >= 0) {
+                    unmatchedPaidParts.removeAt(index)
+                }
+            }
+            fun resolvePartForReceipt(receiptId: Long?, totalAmount: Double?): SettlementStatePart? {
+                val byReceiptId = receiptId?.let { paidPartsByReceiptId[it] }
+                if (byReceiptId != null) {
+                    consumePart(byReceiptId)
+                    return byReceiptId
+                }
+                val byAmount = totalAmount?.let { amount ->
+                    unmatchedPaidParts.firstOrNull { part ->
+                        val partAmount = part.amount ?: return@firstOrNull false
+                        sameMoneyInCents(partAmount, amount)
+                    }
+                }
+                if (byAmount != null) {
+                    consumePart(byAmount)
+                    return byAmount
+                }
+                return unmatchedPaidParts.firstOrNull().also { consumePart(it) }
+            }
+            fun logReceiptPartMatch(receiptId: Long, matchedPart: SettlementStatePart?) {
+                val method = matchedPart?.methodDisplay ?: matchedPart?.method?.name
+                runCatching {
+                    Log.d(
+                        TAG,
+                        "receiptMapping receiptId=$receiptId matchedPartId=${matchedPart?.partId} method=$method"
+                    )
+                }
+            }
             val receiptsForUi = if (settlementState.receipts.isNotEmpty()) {
-                settlementState.receipts
+                settlementState.receipts.map { receipt ->
+                    if (!receipt.paymentMethod.isNullOrBlank() || !receipt.cardMaskedPan.isNullOrBlank()) {
+                        logReceiptPartMatch(receipt.id, null)
+                        receipt
+                    } else {
+                        val part = resolvePartForReceipt(
+                            receiptId = receipt.id,
+                            totalAmount = receipt.totalAmount
+                        )
+                        logReceiptPartMatch(receipt.id, part)
+                        receipt.copy(
+                            paymentMethod = part?.methodDisplay ?: part?.method?.name,
+                            cardBrand = part?.cardBrand,
+                            cardMaskedPan = part?.cardMaskedPan
+                        )
+                    }
+                }
             } else {
                 settlementState.posReceiptIds.map { id ->
+                    val part = resolvePartForReceipt(receiptId = id, totalAmount = null)
+                    logReceiptPartMatch(id, part)
                     SettlementReceipt(
                         id = id,
-                        pdfUrl = if (id == receiptId) settlementState.receiptPdfUrl else null
+                        pdfUrl = if (id == receiptId) settlementState.receiptPdfUrl else null,
+                        paymentMethod = part?.methodDisplay ?: part?.method?.name,
+                        cardBrand = part?.cardBrand,
+                        cardMaskedPan = part?.cardMaskedPan
                     )
                 }
             }
@@ -1044,6 +1237,15 @@ class CheckViewModel @Inject constructor(
         }
     }
 
+    private fun resetPaymentFlow() {
+        _uiState.update {
+            it.copy(
+                paymentFlow = PaymentFlowState(),
+                message = null
+            )
+        }
+    }
+
     private fun calculateAvailableActionQty(item: CheckItem): Int {
         val itemId = item.itemId ?: return 0
         val sourceQty = abs(item.qty)
@@ -1086,4 +1288,31 @@ class CheckViewModel @Inject constructor(
         val openTax = openTotal - openSubtotal
         return Triple(openSubtotal, openTax, openTotal)
     }
+
+    private fun normalizeMoney(amount: Double): Double {
+        return BigDecimal.valueOf(amount.coerceAtLeast(0.0))
+            .setScale(2, RoundingMode.HALF_UP)
+            .toDouble()
+    }
+}
+
+private fun SettlementStatePart.isReusableFor(method: SettlementMethod, requestedTipAmount: Double): Boolean {
+    val normalizedStatus = status.uppercase()
+    val reusableStatus = normalizedStatus != "PAID" &&
+        normalizedStatus != "FAILED" &&
+        normalizedStatus != "VOID" &&
+        normalizedStatus != "CANCELLED"
+    if (!reusableStatus || this.method != method) {
+        return false
+    }
+    if (method != SettlementMethod.CARD) {
+        return true
+    }
+    return sameMoneyInCents(this.tipAmount ?: 0.0, requestedTipAmount)
+}
+
+private fun sameMoneyInCents(left: Double, right: Double): Boolean {
+    val leftCents = kotlin.math.round(left * 100.0).toLong()
+    val rightCents = kotlin.math.round(right * 100.0).toLong()
+    return leftCents == rightCents
 }

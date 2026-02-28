@@ -13,6 +13,10 @@ import org.junit.Rule
 import org.junit.Test
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.CheckSession
+import pos.finestar.barion.domain.model.SettlementMethod
+import pos.finestar.barion.domain.model.SettlementReceipt
+import pos.finestar.barion.domain.model.SettlementState
+import pos.finestar.barion.domain.model.SettlementStatePart
 import pos.finestar.barion.domain.model.TableStatus
 import pos.finestar.barion.domain.repo.AuthRepository
 import pos.finestar.barion.domain.repo.CheckRepository
@@ -22,6 +26,8 @@ import pos.finestar.barion.domain.usecase.GratisCheckItemUseCase
 import pos.finestar.barion.domain.usecase.CloseCheckUseCase
 import pos.finestar.barion.domain.usecase.ConfirmSettlementPartCardUseCase
 import pos.finestar.barion.domain.usecase.GetSettlementStateUseCase
+import pos.finestar.barion.domain.usecase.FiscalizeReceiptUseCase
+import pos.finestar.barion.domain.usecase.GetCheckRoundStateUseCase
 import pos.finestar.barion.domain.usecase.OtpisCheckItemUseCase
 import pos.finestar.barion.domain.usecase.PaySettlementPartCashUseCase
 import pos.finestar.barion.domain.usecase.PrepareSettlementPartUseCase
@@ -68,7 +74,9 @@ class CheckViewModelTest {
                 productId: Long,
                 qty: Int,
                 unitPrice: Double,
-                productName: String?
+                productName: String?,
+                modifiers: List<pos.finestar.barion.domain.model.SelectedModifier>,
+                note: String?
             ): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
@@ -99,7 +107,9 @@ class CheckViewModelTest {
             prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
             paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
             confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            fiscalizeReceiptUseCase = FiscalizeReceiptUseCase(repository),
             getSettlementStateUseCase = GetSettlementStateUseCase(repository),
+            getCheckRoundStateUseCase = GetCheckRoundStateUseCase(repository),
             authRepository = authRepository
         )
 
@@ -125,7 +135,9 @@ class CheckViewModelTest {
                 productId: Long,
                 qty: Int,
                 unitPrice: Double,
-                productName: String?
+                productName: String?,
+                modifiers: List<pos.finestar.barion.domain.model.SelectedModifier>,
+                note: String?
             ): CheckSession = error("unused")
             override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
             override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
@@ -156,7 +168,9 @@ class CheckViewModelTest {
             prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
             paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
             confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            fiscalizeReceiptUseCase = FiscalizeReceiptUseCase(repository),
             getSettlementStateUseCase = GetSettlementStateUseCase(repository),
+            getCheckRoundStateUseCase = GetCheckRoundStateUseCase(repository),
             authRepository = authRepository
         )
 
@@ -187,7 +201,9 @@ class CheckViewModelTest {
                 productId: Long,
                 qty: Int,
                 unitPrice: Double,
-                productName: String?
+                productName: String?,
+                modifiers: List<pos.finestar.barion.domain.model.SelectedModifier>,
+                note: String?
             ): CheckSession {
                 throw SocketTimeoutException("timeout")
             }
@@ -221,7 +237,9 @@ class CheckViewModelTest {
             prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
             paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
             confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            fiscalizeReceiptUseCase = FiscalizeReceiptUseCase(repository),
             getSettlementStateUseCase = GetSettlementStateUseCase(repository),
+            getCheckRoundStateUseCase = GetCheckRoundStateUseCase(repository),
             authRepository = authRepository
         )
 
@@ -233,5 +251,109 @@ class CheckViewModelTest {
         assertFalse(state.isMutating)
         assertTrue(state.message?.contains("timeout") == true)
         assertEquals(1, state.items.size)
+    }
+
+    @Test
+    fun `maps receipt payment method by receipt id instead of part index`() = runTest {
+        val repository = object : CheckRepository {
+            override suspend fun createCheck(tableId: Long): CheckSession = error("unused")
+            override suspend fun getOpenCheckByTable(tableId: Long): CheckSession = error("unused")
+            override suspend fun getCheck(checkId: Long, forceRefresh: Boolean): CheckSession {
+                return CheckSession(
+                    checkId = checkId,
+                    tableId = 7L,
+                    tableName = "Sto 7",
+                    status = TableStatus.OPEN,
+                    items = emptyList(),
+                    subtotal = 4.60,
+                    tax = 0.0,
+                    total = 4.60
+                )
+            }
+
+            override suspend fun getSettlementState(checkId: Long): SettlementState {
+                return SettlementState(
+                    checkStatus = "OPEN",
+                    paymentStatus = "PAID",
+                    posReceiptIds = listOf(12L, 11L),
+                    receipts = listOf(
+                        SettlementReceipt(id = 12L, receiptNumber = 12, totalAmount = 2.60),
+                        SettlementReceipt(id = 11L, receiptNumber = 11, totalAmount = 2.00)
+                    ),
+                    parts = listOf(
+                        SettlementStatePart(
+                            partId = 195L,
+                            status = "PAID",
+                            method = SettlementMethod.CASH,
+                            amount = 2.00,
+                            issuedReceiptId = 11L
+                        ),
+                        SettlementStatePart(
+                            partId = 193L,
+                            status = "PAID",
+                            method = SettlementMethod.CARD,
+                            amount = 2.60,
+                            issuedReceiptId = 12L,
+                            cardMaskedPan = "539982******9303"
+                        )
+                    )
+                )
+            }
+
+            override suspend fun addItem(
+                checkId: Long,
+                productId: Long,
+                qty: Int,
+                unitPrice: Double,
+                productName: String?,
+                modifiers: List<pos.finestar.barion.domain.model.SelectedModifier>,
+                note: String?
+            ): CheckSession = error("unused")
+
+            override suspend fun updateItem(checkId: Long, itemId: Long, qty: Int): CheckSession = error("unused")
+            override suspend fun removeItem(checkId: Long, itemId: Long): CheckSession = error("unused")
+            override suspend fun stornoItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun gratisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun otpisItem(checkId: Long, itemId: Long, reason: String?, qty: Int?): CheckSession = error("unused")
+            override suspend fun sendToBar(checkId: Long): CheckSession = error("unused")
+            override suspend fun closeCheck(checkId: Long): CheckSession? = error("unused")
+            override suspend fun issueReceipt(checkId: Long, fiscalize: Boolean): CheckSession? = error("unused")
+        }
+
+        val vm = CheckViewModel(
+            savedStateHandle = SavedStateHandle(
+                mapOf(
+                    NavRoutes.ARG_CHECK_ID to 21L,
+                    NavRoutes.ARG_TABLE_NAME to "Sto+7"
+                )
+            ),
+            getCheckByIdUseCase = GetCheckByIdUseCase(repository),
+            addItemToCheckUseCase = AddItemToCheckUseCase(repository),
+            updateCheckItemQtyUseCase = UpdateCheckItemQtyUseCase(repository),
+            removeItemFromCheckUseCase = RemoveItemFromCheckUseCase(repository),
+            stornoCheckItemUseCase = StornoCheckItemUseCase(repository),
+            gratisCheckItemUseCase = GratisCheckItemUseCase(repository),
+            otpisCheckItemUseCase = OtpisCheckItemUseCase(repository),
+            closeCheckUseCase = CloseCheckUseCase(repository),
+            sendToBarUseCase = SendToBarUseCase(repository),
+            prepareSettlementPartUseCase = PrepareSettlementPartUseCase(repository),
+            paySettlementPartCashUseCase = PaySettlementPartCashUseCase(repository),
+            confirmSettlementPartCardUseCase = ConfirmSettlementPartCardUseCase(repository),
+            fiscalizeReceiptUseCase = FiscalizeReceiptUseCase(repository),
+            getSettlementStateUseCase = GetSettlementStateUseCase(repository),
+            getCheckRoundStateUseCase = GetCheckRoundStateUseCase(repository),
+            authRepository = authRepository
+        )
+
+        advanceUntilIdle()
+
+        val receipts = vm.uiState.value.settlementReceipts
+        assertEquals(2, receipts.size)
+        assertEquals(12L, receipts[0].id)
+        assertEquals("CARD", receipts[0].paymentMethod)
+        assertEquals("539982******9303", receipts[0].cardMaskedPan)
+        assertEquals(11L, receipts[1].id)
+        assertEquals("CASH", receipts[1].paymentMethod)
+        assertNull(receipts[1].cardMaskedPan)
     }
 }

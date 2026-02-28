@@ -43,7 +43,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,12 +56,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import java.util.Locale
 import pos.finestar.barion.BuildConfig
 import pos.finestar.barion.ReceiptPdfActivity
 import pos.finestar.barion.domain.model.CheckItem
 import pos.finestar.barion.domain.model.SettlementReceipt
 import pos.finestar.barion.domain.model.SettlementPartStatus
+
+private enum class TipChoice {
+    ZERO,
+    FIVE,
+    TEN,
+    CUSTOM
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -88,7 +99,7 @@ fun CheckScreen(
     onSplitCloseCheck: () -> Unit,
     onDismissMethodDialog: () -> Unit,
     onChooseCash: () -> Unit,
-    onChooseCard: () -> Unit,
+    onChooseCard: (Double) -> Unit,
     onStartFiscalizeReceipt: (Long) -> Unit,
     onDismissFiscalizeDialog: () -> Unit,
     onFiscalizePinChanged: (String) -> Unit,
@@ -237,7 +248,7 @@ fun CheckScreen(
                 }
             }
 
-            if (state.isLoading || state.isMutating) {
+            if (state.isLoading || (state.isMutating && !state.paymentFlow.showMethodDialog)) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -339,6 +350,10 @@ private fun PaymentChoiceDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        ),
         title = { Text("Odabir naplate") },
         text = { Text("Odaberite način naplate računa.") },
         confirmButton = {
@@ -370,28 +385,125 @@ private fun String?.normalizeReceiptUrl(): String? {
     }
 }
 
+private fun SettlementReceipt.toPaymentText(): String {
+    val rawMethod = paymentMethod?.trim().orEmpty()
+    val normalizedMethod = rawMethod.uppercase(Locale.US)
+    return when {
+        rawMethod.equals("Gotovina", ignoreCase = true) -> "Gotovina"
+        normalizedMethod.contains("CASH") -> "Gotovina"
+        normalizedMethod.contains("CARD") || cardMaskedPan != null || cardBrand != null -> {
+            val brand = cardBrand?.trim().orEmpty()
+            val pan = cardMaskedPan?.trim().orEmpty()
+            listOf(brand, pan).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Kartica" }
+        }
+        rawMethod.isNotBlank() -> rawMethod
+        else -> ""
+    }
+}
+
 @Composable
 private fun PaymentMethodDialog(
     targetLabel: String,
     amount: Double,
     onDismiss: () -> Unit,
     onCash: () -> Unit,
-    onCard: () -> Unit,
+    onCard: (Double) -> Unit,
     isSubmitting: Boolean
 ) {
+    var showCardTipStep by remember { mutableStateOf(false) }
+    var tipChoice by remember { mutableStateOf(TipChoice.ZERO) }
+    var customTipInput by remember { mutableStateOf("") }
+    val parsedCustomTip = customTipInput.replace(',', '.').toDoubleOrNull()
+    val tipAmount = when (tipChoice) {
+        TipChoice.ZERO -> 0.0
+        TipChoice.FIVE -> (amount * 0.05)
+        TipChoice.TEN -> (amount * 0.10)
+        TipChoice.CUSTOM -> (parsedCustomTip ?: 0.0).coerceAtLeast(0.0)
+    }
+    val normalizedTipAmount = kotlin.math.round(tipAmount * 100.0) / 100.0
+    val totalWithTip = amount + normalizedTipAmount
+    val isCustomTipValid = tipChoice != TipChoice.CUSTOM || (parsedCustomTip != null && parsedCustomTip >= 0.0)
+    val isTipWithinAmount = normalizedTipAmount <= amount
+
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            showCardTipStep = false
+            onDismiss()
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        ),
         title = { Text("$targetLabel · način plaćanja") },
         text = {
-            Text("Iznos: ${"%.2f".format(amount)} EUR")
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Iznos: ${"%.2f".format(amount)} EUR")
+                if (showCardTipStep) {
+                    if (isSubmitting) {
+                        Text("Čekanje odgovora terminala...", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        TextButton(onClick = { tipChoice = TipChoice.ZERO }, enabled = !isSubmitting) {
+                            Text(if (tipChoice == TipChoice.ZERO) "0% ✓" else "0%")
+                        }
+                        TextButton(onClick = { tipChoice = TipChoice.FIVE }, enabled = !isSubmitting) {
+                            Text(if (tipChoice == TipChoice.FIVE) "5% ✓" else "5%")
+                        }
+                        TextButton(onClick = { tipChoice = TipChoice.TEN }, enabled = !isSubmitting) {
+                            Text(if (tipChoice == TipChoice.TEN) "10% ✓" else "10%")
+                        }
+                        TextButton(onClick = { tipChoice = TipChoice.CUSTOM }, enabled = !isSubmitting) {
+                            Text(if (tipChoice == TipChoice.CUSTOM) "Custom ✓" else "Custom")
+                        }
+                    }
+                    if (tipChoice == TipChoice.CUSTOM) {
+                        OutlinedTextField(
+                            value = customTipInput,
+                            onValueChange = { customTipInput = it.filter { ch -> ch.isDigit() || ch == '.' || ch == ',' } },
+                            label = { Text("Napojnica (EUR)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            singleLine = true,
+                            enabled = !isSubmitting
+                        )
+                    }
+                    Text("Napojnica: ${"%.2f".format(normalizedTipAmount)} EUR")
+                    Text("Kartica ukupno: ${"%.2f".format(totalWithTip)} EUR")
+                    if (!isTipWithinAmount) {
+                        Text(
+                            text = "Napojnica ne može biti veća od iznosa naplate.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onCash, enabled = !isSubmitting) {
-                    Text("Gotovina")
+            if (showCardTipStep) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { showCardTipStep = false },
+                        enabled = !isSubmitting
+                    ) {
+                        Text("Natrag")
+                    }
+                    Button(
+                        onClick = { onCard(normalizedTipAmount) },
+                        enabled = !isSubmitting && isCustomTipValid && isTipWithinAmount
+                    ) {
+                        Text("Potvrdi karticu")
+                    }
                 }
-                Button(onClick = onCard, enabled = !isSubmitting) {
-                    Text("Kartica")
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onCash, enabled = !isSubmitting) {
+                        Text("Gotovina")
+                    }
+                    Button(
+                        onClick = { showCardTipStep = true },
+                        enabled = !isSubmitting
+                    ) {
+                        Text("Kartica + tip")
+                    }
                 }
             }
         },
@@ -418,6 +530,10 @@ private fun SplitFlowDialog(
     val flow = state.paymentFlow
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        ),
         title = {
             Text(if (flow.isSplitSummary) "Split summary" else "Split #${flow.splitStepIndex}")
         },
@@ -700,8 +816,16 @@ private fun ItemsList(
                         val number = receipt.receiptNumber ?: receipt.id.toInt()
                         val amountText = receipt.totalAmount?.let { " · ${"%.2f".format(it)} EUR" }.orEmpty()
                         val statusText = receipt.status?.replace('_', ' ')?.uppercase(Locale.US).orEmpty()
+                        val paymentText = receipt.toPaymentText()
                         val normalizedPdfUrl = receipt.pdfUrl.normalizeReceiptUrl()
                         Text("Račun #$number$amountText")
+                        if (paymentText.isNotBlank()) {
+                            Text(
+                                text = paymentText,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         if (statusText.isNotBlank()) {
                             Text(
                                 text = statusText,
