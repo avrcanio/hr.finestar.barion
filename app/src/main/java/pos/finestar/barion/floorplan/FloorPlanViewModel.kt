@@ -49,6 +49,7 @@ class FloorPlanViewModel @Inject constructor(
 
     sealed interface Event {
         data class OpenCheck(val checkId: Long, val tableName: String) : Event
+        data object NavigateToPin : Event
     }
 
     private val _uiState = MutableStateFlow(UiState())
@@ -109,6 +110,16 @@ class FloorPlanViewModel @Inject constructor(
                 _uiState.update { it.copy(error = message) }
                 _uiState.update { it.copy(isMutating = false) }
             }
+        }
+    }
+
+    fun onLogout() {
+        viewModelScope.launch {
+            if (_uiState.value.isMutating) return@launch
+            _uiState.update { it.copy(isMutating = true, error = null) }
+            runCatching { authRepository.logout() }
+            _uiState.update { it.copy(isMutating = false) }
+            _events.emit(Event.NavigateToPin)
         }
     }
 

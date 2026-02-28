@@ -3,6 +3,7 @@ package pos.finestar.barion.floorplan
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -22,9 +24,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,9 +58,12 @@ fun FloorPlanScreen(
     state: FloorPlanViewModel.UiState,
     onTableClick: (Long) -> Unit,
     onRefresh: () -> Unit,
-    onLayoutSelected: (Long) -> Unit
+    onLayoutSelected: (Long) -> Unit,
+    onLogout: () -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    var showLogoutDialog by remember { mutableStateOf(false) }
+    val swipeThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -77,13 +87,12 @@ fun FloorPlanScreen(
                             state.userDisplayName?.takeIf { it.isNotBlank() }?.let { displayName ->
                                 Text(
                                     text = "Prijavljen: $displayName",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            state.selectedLayoutName?.takeIf { it.isNotBlank() }?.let { layoutName ->
-                                Text(
-                                    text = "Layout: $layoutName",
-                                    style = MaterialTheme.typography.bodySmall
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.clickable(
+                                        enabled = !state.isLoading && !state.isMutating
+                                    ) {
+                                        showLogoutDialog = true
+                                    }
                                 )
                             }
                             if (state.allowedLayouts.isNotEmpty()) {
@@ -161,7 +170,48 @@ fun FloorPlanScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .padding(16.dp),
+                            .padding(16.dp)
+                            .pointerInput(
+                                state.allowedLayouts,
+                                state.selectedLayoutId,
+                                state.isLoading,
+                                state.isMutating
+                            ) {
+                                var totalDragX = 0f
+                                detectHorizontalDragGestures(
+                                    onHorizontalDrag = { _, dragAmount ->
+                                        totalDragX += dragAmount
+                                    },
+                                    onDragCancel = {
+                                        totalDragX = 0f
+                                    },
+                                    onDragEnd = {
+                                        if (state.isLoading || state.isMutating) {
+                                            totalDragX = 0f
+                                            return@detectHorizontalDragGestures
+                                        }
+                                        val layouts = state.allowedLayouts
+                                        if (layouts.size < 2) {
+                                            totalDragX = 0f
+                                            return@detectHorizontalDragGestures
+                                        }
+                                        val currentIndex = layouts
+                                            .indexOfFirst { it.id == state.selectedLayoutId }
+                                            .let { if (it >= 0) it else 0 }
+                                        val targetIndex = when {
+                                            totalDragX <= -swipeThresholdPx && currentIndex < layouts.lastIndex ->
+                                                currentIndex + 1
+                                            totalDragX >= swipeThresholdPx && currentIndex > 0 ->
+                                                currentIndex - 1
+                                            else -> null
+                                        }
+                                        if (targetIndex != null) {
+                                            onLayoutSelected(layouts[targetIndex].id)
+                                        }
+                                        totalDragX = 0f
+                                    }
+                                )
+                            },
                         onTableClick = onTableClick
                     )
                 }
@@ -175,6 +225,37 @@ fun FloorPlanScreen(
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = {}, onLongPress = {})
                     }
+            )
+        }
+
+        if (showLogoutDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!state.isMutating) {
+                        showLogoutDialog = false
+                    }
+                },
+                title = { Text("Odjava") },
+                text = { Text("Želiš li se odjaviti?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showLogoutDialog = false
+                            onLogout()
+                        },
+                        enabled = !state.isMutating
+                    ) {
+                        Text("Odjava")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showLogoutDialog = false },
+                        enabled = !state.isMutating
+                    ) {
+                        Text("Odustani")
+                    }
+                }
             )
         }
         }

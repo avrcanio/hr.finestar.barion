@@ -79,6 +79,7 @@ class RemoteAuthRepository @Inject constructor(
     override suspend fun currentUserDisplayName(): String? = sessionStore.currentDisplayName()
 
     override suspend fun logout() {
+        runCatching { api.logout() }
         sessionStore.clear()
     }
 

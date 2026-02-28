@@ -45,6 +45,9 @@ interface PosApi {
     @GET("/api/me/")
     suspend fun me(): MeResponseDto
 
+    @POST("/api/logout/")
+    suspend fun logout(): Response<Unit>
+
     @GET("/api/pos/active-layout/")
     suspend fun getActiveLayout(
         @Query("layout_id") layoutId: Long? = null,

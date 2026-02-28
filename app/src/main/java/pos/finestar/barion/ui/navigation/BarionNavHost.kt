@@ -94,6 +94,11 @@ fun BarionNavHost() {
                                 )
                             )
                         }
+                        FloorPlanViewModel.Event.NavigateToPin -> {
+                            navController.navigate(NavRoutes.PIN_LOGIN) {
+                                popUpTo(NavRoutes.FLOOR_PLAN) { inclusive = true }
+                            }
+                        }
                     }
                 }
             }
@@ -102,7 +107,8 @@ fun BarionNavHost() {
                 state = uiState.value,
                 onTableClick = vm::onTableClick,
                 onRefresh = vm::onResume,
-                onLayoutSelected = vm::onLayoutSelected
+                onLayoutSelected = vm::onLayoutSelected,
+                onLogout = vm::onLogout
             )
         }
 
