@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -36,15 +38,32 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.util.Locale
+
+private enum class TipChoice {
+    ZERO,
+    FIVE,
+    TEN,
+    CUSTOM
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,10 +77,13 @@ fun PartialPaymentScreen(
     onPay: () -> Unit,
     onDismissMethodDialog: () -> Unit,
     onPayCash: () -> Unit,
-    onPayCard: () -> Unit,
+    onPayCard: (Double) -> Unit,
     onMessageShown: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    var showCardTipStep by remember { mutableStateOf(false) }
+    var tipChoice by remember { mutableStateOf(TipChoice.ZERO) }
+    var customTipInput by remember { mutableStateOf("") }
 
     LaunchedEffect(state.message) {
         val msg = state.message
@@ -78,9 +100,9 @@ fun PartialPaymentScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Partial payment")
+                        Text("Djelomična naplata")
                         Text(
-                            "Check #${state.checkId} · ${state.tableName}",
+                            "Račun #${state.checkId} · ${state.tableName}",
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
@@ -111,6 +133,12 @@ fun PartialPaymentScreen(
                     enabled = !state.isMutating && state.hasSelection
                 ) {
                     Text(if (state.isMutating) "..." else "Naplati")
+                }
+                if (!state.hasSelection && !state.isMutating) {
+                    Text(
+                        text = "Odaberi stavke za naplatu.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -148,9 +176,9 @@ fun PartialPaymentScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Status: ${state.checkStatus} / ${state.paymentStatus ?: "-"}")
-                            Text("Preostalo: ${"%.2f".format(state.remainingTotal ?: 0.0)} EUR")
-                            Text("Odabrano: ${"%.2f".format(state.selectedTotal)} EUR")
+                            Text("Status: ${mapCheckStatus(state.checkStatus)} / ${mapPaymentStatus(state.paymentStatus)}")
+                            Text("Preostalo: ${formatMoneyEur(state.remainingTotal ?: 0.0)}")
+                            Text("Odabrano: ${formatMoneyEur(state.selectedTotal)}")
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -176,7 +204,7 @@ fun PartialPaymentScreen(
                                             style = MaterialTheme.typography.titleSmall
                                         )
                                         Text(
-                                            text = "Total R${roundNumber ?: 0}: ${"%.2f".format(roundItems.sumOf { it.remainingAmount })} EUR",
+                                            text = "Ukupno R${roundNumber ?: 0}: ${formatMoneyEur(roundItems.sumOf { it.remainingAmount })}",
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
@@ -212,23 +240,31 @@ fun PartialPaymentScreen(
                                                     textDecoration = mainDecoration
                                                 )
                                                 Text(
-                                                    text = "Qty: ${item.sourceQty}",
+                                                    text = "Količina: ${formatQty(item.sourceQty.toDouble())}",
                                                     textDecoration = mainDecoration
                                                 )
-                                                Text("Remaining qty: ${item.remainingQty}")
-                                                Text("Remaining: ${"%.2f".format(item.remainingAmount)} EUR")
-                                                Text("Odabrano: ${item.selectedQty}")
+                                                Text("Preostala kol.: ${formatQty(item.remainingQty.toDouble())}")
+                                                Text("Preostalo: ${formatMoneyEur(item.remainingAmount)}")
                                             }
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                TextButton(onClick = { onDecrease(item.id) }, enabled = item.selectedQty > 0 && !state.isMutating) {
-                                                    Text("-")
+                                                TextButton(
+                                                    onClick = { onIncrease(item.id) },
+                                                    enabled = item.selectedQty < item.remainingQty && !state.isMutating,
+                                                    modifier = Modifier
+                                                        .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+                                                        .semantics { contentDescription = "Povećaj količinu" }
+                                                ) {
+                                                    Text("+")
                                                 }
                                                 Text("${item.selectedQty}")
                                                 TextButton(
-                                                    onClick = { onIncrease(item.id) },
-                                                    enabled = item.selectedQty < item.remainingQty && !state.isMutating
+                                                    onClick = { onDecrease(item.id) },
+                                                    enabled = item.selectedQty > 0 && !state.isMutating,
+                                                    modifier = Modifier
+                                                        .sizeIn(minWidth = 44.dp, minHeight = 44.dp)
+                                                        .semantics { contentDescription = "Smanji količinu" }
                                                 ) {
-                                                    Text("+")
+                                                    Text("-")
                                                 }
                                             }
                                         }
@@ -238,8 +274,8 @@ fun PartialPaymentScreen(
                                                 colors = CardDefaults.cardColors(containerColor = paidLineColor(paid.uiColor))
                                             ) {
                                                 Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                    Text("${paid.lineType}: ${paid.quantity} x ${"%.4f".format(paid.unitPrice)}")
-                                                    Text("Naplaćeno: ${"%.2f".format(paid.totalAmount)} EUR")
+                                                    Text("${mapLineType(paid.lineType)}: ${formatQty(paid.quantity)} x ${formatMoney(paid.unitPrice)}")
+                                                    Text("Naplaćeno: ${formatMoneyEur(paid.totalAmount)}")
                                                 }
                                             }
                                         }
@@ -254,18 +290,113 @@ fun PartialPaymentScreen(
     }
 
     if (state.showMethodDialog) {
+        val parsedCustomTip = customTipInput.replace(',', '.').toDoubleOrNull()
+        val tipAmount = when (tipChoice) {
+            TipChoice.ZERO -> 0.0
+            TipChoice.FIVE -> (state.selectedTotal * 0.05)
+            TipChoice.TEN -> (state.selectedTotal * 0.10)
+            TipChoice.CUSTOM -> (parsedCustomTip ?: 0.0).coerceAtLeast(0.0)
+        }
+        val normalizedTipAmount = kotlin.math.round(tipAmount * 100.0) / 100.0
+        val totalWithTip = state.selectedTotal + normalizedTipAmount
+        val isCustomTipValid = tipChoice != TipChoice.CUSTOM || (parsedCustomTip != null && parsedCustomTip >= 0.0)
+        val isTipWithinAmount = normalizedTipAmount <= state.selectedTotal
         AlertDialog(
-            onDismissRequest = onDismissMethodDialog,
+            onDismissRequest = {
+                onDismissMethodDialog()
+                showCardTipStep = false
+                tipChoice = TipChoice.ZERO
+                customTipInput = ""
+            },
+            properties = DialogProperties(
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            ),
             title = { Text("Način plaćanja") },
-            text = { Text("Iznos: ${"%.2f".format(state.selectedTotal)} EUR") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Iznos: ${formatMoneyEur(state.selectedTotal)}")
+                    if (showCardTipStep) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            TextButton(onClick = { tipChoice = TipChoice.ZERO }, enabled = !state.isMutating) {
+                                Text(if (tipChoice == TipChoice.ZERO) "0% ✓" else "0%")
+                            }
+                            TextButton(onClick = { tipChoice = TipChoice.FIVE }, enabled = !state.isMutating) {
+                                Text(if (tipChoice == TipChoice.FIVE) "5% ✓" else "5%")
+                            }
+                            TextButton(onClick = { tipChoice = TipChoice.TEN }, enabled = !state.isMutating) {
+                                Text(if (tipChoice == TipChoice.TEN) "10% ✓" else "10%")
+                            }
+                            TextButton(onClick = { tipChoice = TipChoice.CUSTOM }, enabled = !state.isMutating) {
+                                Text(if (tipChoice == TipChoice.CUSTOM) "Ručno ✓" else "Ručno")
+                            }
+                        }
+                        if (tipChoice == TipChoice.CUSTOM) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = customTipInput,
+                                onValueChange = { customTipInput = it.filter { ch -> ch.isDigit() || ch == '.' || ch == ',' } },
+                                label = { Text("Napojnica (EUR)") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                enabled = !state.isMutating
+                            )
+                        }
+                        Text("Napojnica: ${formatMoneyEur(normalizedTipAmount)}")
+                        Text("Kartica ukupno: ${formatMoneyEur(totalWithTip)}")
+                        if (!isTipWithinAmount) {
+                            Text(
+                                text = "Napojnica ne može biti veća od iznosa naplate.",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            },
             confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onPayCash, enabled = !state.isMutating) { Text("Gotovina") }
-                    Button(onClick = onPayCard, enabled = !state.isMutating) { Text("Kartica") }
+                if (showCardTipStep) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = { showCardTipStep = false },
+                            enabled = !state.isMutating
+                        ) { Text("Natrag") }
+                        Button(
+                            onClick = {
+                                onPayCard(normalizedTipAmount)
+                                showCardTipStep = false
+                                tipChoice = TipChoice.ZERO
+                                customTipInput = ""
+                            },
+                            enabled = !state.isMutating && isCustomTipValid && isTipWithinAmount
+                        ) { Text("Potvrdi karticu") }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                onPayCash()
+                                showCardTipStep = false
+                                tipChoice = TipChoice.ZERO
+                                customTipInput = ""
+                            },
+                            enabled = !state.isMutating
+                        ) { Text("Gotovina") }
+                        Button(
+                            onClick = { showCardTipStep = true },
+                            enabled = !state.isMutating
+                        ) { Text("Kartica + tip") }
+                    }
                 }
             },
             dismissButton = {
-                TextButton(onClick = onDismissMethodDialog, enabled = !state.isMutating) {
+                TextButton(
+                    onClick = {
+                        onDismissMethodDialog()
+                        showCardTipStep = false
+                        tipChoice = TipChoice.ZERO
+                        customTipInput = ""
+                    },
+                    enabled = !state.isMutating
+                ) {
                     Text("Odustani")
                 }
             }
@@ -293,4 +424,43 @@ private fun paidLineColor(uiColor: String?): Color {
         "light_blue" -> Color(0xFFE3F2FD)
         else -> Color(0xFFE3F2FD)
     }
+}
+
+private fun mapCheckStatus(status: String): String {
+    return when (status.trim().uppercase(Locale.US)) {
+        "OPEN" -> "Otvoren"
+        "CLOSED" -> "Zatvoren"
+        "FREE" -> "Slobodan"
+        else -> status.ifBlank { "-" }
+    }
+}
+
+private fun mapPaymentStatus(status: String?): String {
+    val normalized = status?.trim()?.uppercase(Locale.US).orEmpty()
+    return when (normalized) {
+        "" -> "-"
+        "PARTIAL" -> "Djelomično plaćeno"
+        "PAID" -> "Plaćeno"
+        "UNPAID" -> "Neplaćeno"
+        "FAILED" -> "Neuspjelo"
+        else -> status ?: "-"
+    }
+}
+
+private fun formatMoney(value: Double): String = String.format(Locale.US, "%.2f", value)
+
+private fun formatMoneyEur(value: Double): String = "${formatMoney(value)} EUR"
+
+private fun mapLineType(lineType: String): String {
+    return when (lineType.trim().uppercase(Locale.US)) {
+        "PAID" -> "Naplaćeno"
+        else -> lineType
+    }
+}
+
+private fun formatQty(value: Double): String {
+    return BigDecimal.valueOf(value)
+        .setScale(2, RoundingMode.HALF_UP)
+        .stripTrailingZeros()
+        .toPlainString()
 }

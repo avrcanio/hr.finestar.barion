@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.math.BigDecimal
+import java.math.RoundingMode
 import retrofit2.HttpException
 import java.util.UUID
 import javax.inject.Inject
@@ -200,27 +202,43 @@ class PartialPaymentViewModel @Inject constructor(
     }
 
     fun onDismissMethodDialog() {
-        _uiState.update { it.copy(showMethodDialog = false) }
+        _uiState.update { state ->
+            state.copy(
+                showMethodDialog = false,
+                items = state.items.map { it.copy(selectedQty = 0) }
+            )
+        }
     }
 
     fun onPayCash() {
         settleSelectedItems(isCard = false)
     }
 
-    fun onPayCard() {
-        settleSelectedItems(isCard = true)
+    fun onPayCard(tipAmount: Double) {
+        settleSelectedItems(isCard = true, tipAmount = tipAmount)
     }
 
     fun onMessageShown() {
         _uiState.update { it.copy(message = null) }
     }
 
-    private fun settleSelectedItems(isCard: Boolean) {
+    private fun settleSelectedItems(isCard: Boolean, tipAmount: Double = 0.0) {
         val flowId = UUID.randomUUID().toString().take(8)
         val selected = _uiState.value.items.filter { it.selectedQty > 0 }
         if (selected.isEmpty()) return
         val selections = selected.map { SettlementSelection(checkItemId = it.id, qty = it.selectedQty) }
         val amount = selected.sumOf { it.selectedAmount }
+        val normalizedTipAmount = normalizeMoney(tipAmount)
+        if (isCard && normalizedTipAmount > amount) {
+            _uiState.update {
+                it.copy(message = "Napojnica ne može biti veća od iznosa naplate.")
+            }
+            Log.w(
+                TAG,
+                "[flow:$flowId] settleSelectedItems aborted checkId=$checkId reason=tip_gt_amount amount=${"%.2f".format(amount)} tip=${"%.2f".format(normalizedTipAmount)}"
+            )
+            return
+        }
         if (amount < 0.01) {
             _uiState.update {
                 it.copy(
@@ -245,6 +263,7 @@ class PartialPaymentViewModel @Inject constructor(
                         selections = selections,
                         requestedAmount = amount,
                         method = SettlementMethod.CARD,
+                        tipAmount = normalizedTipAmount,
                         flowId = flowId
                     )
                     val partId = preparedTarget.partId
@@ -257,7 +276,7 @@ class PartialPaymentViewModel @Inject constructor(
                         checkId = checkId,
                         partId = partId,
                         amount = payAmount,
-                        tipAmount = 0.0,
+                        tipAmount = normalizedTipAmount,
                         approved = true,
                         providerRef = "debug-${flowId}-${System.currentTimeMillis()}",
                         clientTransactionId = "flow-${flowId}-check-${checkId}-part-${partId}-${System.currentTimeMillis()}"
@@ -267,6 +286,7 @@ class PartialPaymentViewModel @Inject constructor(
                         selections = selections,
                         requestedAmount = amount,
                         method = SettlementMethod.CASH,
+                        tipAmount = 0.0,
                         flowId = flowId
                     )
                     Log.d(
@@ -291,11 +311,23 @@ class PartialPaymentViewModel @Inject constructor(
                     TAG,
                     "[flow:$flowId] settleSelectedItems success checkId=$checkId status=${settlementState.checkStatus} paymentStatus=${settlementState.paymentStatus} remaining=${settlementState.remainingTotal}"
                 )
-                applySettlementState(settlement = settlementState, roundStateItems = roundStateItems)
+                applySettlementState(
+                    settlement = settlementState,
+                    roundStateItems = roundStateItems,
+                    keepPreviousSelection = false
+                )
                 _uiState.update {
                     it.copy(
                         isMutating = false,
-                        message = if (isCard) "Kartica naplaćena." else "Gotovina naplaćena."
+                        message = if (isCard) {
+                            if (normalizedTipAmount > 0.0) {
+                                "Kartica naplaćena (+ ${"%.2f".format(normalizedTipAmount)} EUR tip)."
+                            } else {
+                                "Kartica naplaćena."
+                            }
+                        } else {
+                            "Gotovina naplaćena."
+                        }
                     )
                 }
             }.onFailure { error ->
@@ -318,15 +350,16 @@ class PartialPaymentViewModel @Inject constructor(
         selections: List<SettlementSelection>,
         requestedAmount: Double,
         method: SettlementMethod,
+        tipAmount: Double,
         flowId: String
     ): TargetPart {
         val settlementState = getSettlementStateUseCase(checkId)
-        val reusablePart = findReusablePart(settlementState.parts, method)
+        val reusablePart = findReusablePart(settlementState.parts, method, tipAmount)
         if (reusablePart != null) {
             val reusableAmount = reusablePart.amount ?: requestedAmount
             Log.d(
                 TAG,
-                "[flow:$flowId] resolveTargetPart reused existing part checkId=$checkId partId=${reusablePart.partId} method=${method.name} amount=${"%.2f".format(reusableAmount)}"
+                "[flow:$flowId] resolveTargetPart reused checkId=$checkId partId=${reusablePart.partId} method=${method.name} amount=${"%.2f".format(reusableAmount)} tip=${"%.2f".format(tipAmount)}"
             )
             return TargetPart(
                 partId = reusablePart.partId,
@@ -338,35 +371,38 @@ class PartialPaymentViewModel @Inject constructor(
             val remainingTotal = settlementState.remainingTotal
             Log.d(
                 TAG,
-                "[flow:$flowId] resolveTargetPart prepare request checkId=$checkId method=${method.name} amount=${"%.2f".format(requestedAmount)} remainingTotal=${remainingTotal?.let { "%.2f".format(it) }} selections=${selections.joinToString { "${it.checkItemId}:${it.qty}" }}"
+                "[flow:$flowId] resolveTargetPart prepare request checkId=$checkId method=${method.name} amount=${"%.2f".format(requestedAmount)} tip=${"%.2f".format(tipAmount)} remainingTotal=${remainingTotal?.let { "%.2f".format(it) }} selections=${selections.joinToString { "${it.checkItemId}:${it.qty}" }}"
             )
             val prepared = prepareSettlementPartUseCase(
                 checkId = checkId,
                 selections = selections,
                 amount = requestedAmount,
                 method = method,
+                tipAmount = tipAmount,
                 remainingTotal = remainingTotal
             )
-            val preparedPartId = prepared.part.partId.takeIf { it > 0L }
-                ?: getSettlementStateUseCase(checkId).preparedPart?.partId
-                ?: 0L
+            val preparedPartId = prepared.part.partId.takeIf { partId ->
+                partId > 0L && prepared.part.isCompatibleFor(method = method, requestedTipAmount = tipAmount)
+            } ?: run {
+                val current = getSettlementStateUseCase(checkId)
+                findReusablePart(current.parts, method, tipAmount)?.partId
+            } ?: throw IllegalStateException("Nije pronađen pripremljeni ${method.name} part. Osvježi i pokušaj ponovno.")
             val preparedAmount = prepared.part.amount.takeIf { it > 0.0 } ?: requestedAmount
             Log.d(
                 TAG,
-                "[flow:$flowId] resolveTargetPart prepare response checkId=$checkId resolvedPartId=$preparedPartId resolvedAmount=${"%.2f".format(preparedAmount)} rawPartId=${prepared.part.partId}"
+                "[flow:$flowId] resolveTargetPart prepared checkId=$checkId resolvedPartId=$preparedPartId resolvedAmount=${"%.2f".format(preparedAmount)} tip=${"%.2f".format(tipAmount)} rawPartId=${prepared.part.partId}"
             )
             TargetPart(partId = preparedPartId, amount = preparedAmount)
         } catch (error: Throwable) {
             if (!isPrepareConflict(error)) throw error
             Log.w(TAG, "[flow:$flowId] resolveTargetPart prepare conflict checkId=$checkId message=${error.message}")
             val current = getSettlementStateUseCase(checkId)
-            val preparedPart = findReusablePart(current.parts, method)
-                ?: current.preparedPart
+            val preparedPart = findReusablePart(current.parts, method, tipAmount)
                 ?: throw error
             val preparedAmount = preparedPart.amount ?: requestedAmount
             Log.d(
                 TAG,
-                "[flow:$flowId] resolveTargetPart reused prepared part checkId=$checkId partId=${preparedPart.partId} amount=${"%.2f".format(preparedAmount)}"
+                "[flow:$flowId] resolveTargetPart reused prepared part checkId=$checkId partId=${preparedPart.partId} amount=${"%.2f".format(preparedAmount)} tip=${"%.2f".format(tipAmount)}"
             )
             TargetPart(
                 partId = preparedPart.partId,
@@ -376,11 +412,17 @@ class PartialPaymentViewModel @Inject constructor(
         }
     }
 
-    private fun findReusablePart(parts: List<SettlementStatePart>, method: SettlementMethod): SettlementStatePart? {
+    private fun findReusablePart(
+        parts: List<SettlementStatePart>,
+        method: SettlementMethod,
+        requestedTipAmount: Double
+    ): SettlementStatePart? {
         return parts.firstOrNull { part ->
             val status = part.status.uppercase()
             val reusableStatus = status != "PAID" && status != "FAILED" && status != "VOID" && status != "CANCELLED"
-            reusableStatus && (part.method == null || part.method == method)
+            val sameMethod = part.method == method
+            val sameTip = method != SettlementMethod.CARD || sameMoneyInCents(part.tipAmount ?: 0.0, requestedTipAmount)
+            reusableStatus && sameMethod && sameTip
         }
     }
 
@@ -401,9 +443,31 @@ class PartialPaymentViewModel @Inject constructor(
         val amount: Double
     )
 
+    private fun pos.finestar.barion.domain.model.SettlementPart.isCompatibleFor(
+        method: SettlementMethod,
+        requestedTipAmount: Double
+    ): Boolean {
+        if (this.method != method) return false
+        if (method != SettlementMethod.CARD) return true
+        return sameMoneyInCents(this.tipAmount, requestedTipAmount)
+    }
+
+    private fun normalizeMoney(amount: Double): Double {
+        return BigDecimal.valueOf(amount.coerceAtLeast(0.0))
+            .setScale(2, RoundingMode.HALF_UP)
+            .toDouble()
+    }
+
+    private fun sameMoneyInCents(left: Double, right: Double): Boolean {
+        val leftCents = kotlin.math.round(left * 100.0).toLong()
+        val rightCents = kotlin.math.round(right * 100.0).toLong()
+        return leftCents == rightCents
+    }
+
     private fun applySettlementState(
         settlement: SettlementState,
-        roundStateItems: List<CheckRoundStateItem> = emptyList()
+        roundStateItems: List<CheckRoundStateItem> = emptyList(),
+        keepPreviousSelection: Boolean = true
     ) {
         Log.d(
             TAG,
@@ -420,7 +484,11 @@ class PartialPaymentViewModel @Inject constructor(
                 preparedPartId = settlement.preparedPart?.partId,
                 items = settlement.items.map { item ->
                     item.toUi(
-                        previousSelection = state.items.firstOrNull { it.id == item.id }?.selectedQty ?: 0,
+                        previousSelection = if (keepPreviousSelection) {
+                            state.items.firstOrNull { it.id == item.id }?.selectedQty ?: 0
+                        } else {
+                            0
+                        },
                         roundState = roundStateByItemId[item.id]
                     )
                 }
