@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <queries>
+        <package android:name="com.vivawallet.spoc.payapp.demo" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="vivapayclient" />
+        </intent>
+    </queries>
 
     <application
         android:name=".BarionApp"
@@ -23,6 +30,31 @@
         <activity
             android:name=".ReceiptPdfActivity"
             android:exported="false" />
+        <activity
+            android:name=".VivaCallbackActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="${VIVA_CALLBACK_HOST}"
+                    android:scheme="${VIVA_CALLBACK_SCHEME}" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="${VIVA_CALLBACK_SCHEME}" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

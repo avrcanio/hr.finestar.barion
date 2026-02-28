@@ -12,3 +12,4 @@
 /.gradle-user-home/
 /logcat/
 *.logcat
+.env

@@ -8,16 +8,16 @@ Barion je tablet-first POS aplikacija za bar/klub rad: floor plan, otvoreni chec
 
 - Repo: `avrcanio/pos.finestar.barion`
 - Android app package: `pos.finestar.barion`
-- Trenutna app verzija: `versionCode=42`, `versionName=1.042`
+- Trenutna app verzija: `versionCode=100`, `versionName=1.100`
 - Backend base URL (default): `https://mozart.sibenik1983.hr/`
 
 ## Issue status (GitHub)
 
-Pregledano je svih 31 issue-a.
+Pregledano je svih 48 issue-a.
 
-- Zatvoreno: `#1-#4, #6, #10-#24, #26-#28, #30, #31`
-- Otvoreno: `#25` (Auth/PIN hardening checklist), `#29` (multi-layout access + floor switch backend policy)
-- Duplikati/zatvoreno: `#5, #7-#9, #11-#18`
+- Zatvoreno: `44`
+- Otvoreno: `4` (`#33`, `#42`, `#43`, `#44`)
+- Najnovije zatvoreno: `#46`, `#47`, `#48`
 
 ### Što je isporučeno kroz issue-e
 
@@ -28,6 +28,9 @@ Pregledano je svih 31 issue-a.
 - `#28`: Add Item split UX (kategorije + grid artikala sa slikama), košarica i round flow.
 - `#30`: Storno/Gratis/Otpis flow s audit tragom i UI označavanjem.
 - `#31`: deterministički products query (`sort=popular`) i limitiranje listanja (`limit=100`).
+- `#32`, `#34-#41`: Payment Flow v1 (full/split, settlement partovi, cash/card confirm, status tranzicije, backend contracti).
+- `#46`, `#48`: modifiers/opcije po artiklu (long-press konfiguracija, note, simple/bundle hibrid, bundle preview, markeri u UI).
+- `#47`: day/night runtime mode podrška (runtime-mode endpoint + prikaz trenutnog moda u app-u).
 
 ## Funkcionalnosti u aplikaciji
 
@@ -40,8 +43,15 @@ Pregledano je svih 31 issue-a.
 - Add items ekran:
   - kategorije (`level=2`),
   - grid artikala sa slikama,
-  - modal za količinu,
+  - tap = quick add, long-press = konfiguracija artikla,
+  - modifiers (simple/bundle) + note po artiklu,
+  - bundle price preview prije dodavanja,
+  - badgevi za artikle s opcijama/konfiguracijom,
   - košarica + slanje runde.
+- Check prikaz koristi `round-state` + `settlement-state`:
+  - prikaz paid linija,
+  - prikaz preostalih količina po itemu,
+  - fiskalizacija pojedinog računa iz liste `Plaćeni računi`.
 - FREE flow: kad je total `0.00`, gumb `Naplata` postaje `Free` i zatvara check bez PIN-a.
 - Payment Sprint 1:
   - izbor `Kompletna naplata` vs `Naplati dio (Split)`,
@@ -49,7 +59,7 @@ Pregledano je svih 31 issue-a.
   - split summary s part statusima (`PREPARED/PAID/FAILED`),
   - per-part pay (`Gotovina` / `Kartica` confirm),
   - close check guard tek kad su svi partovi plaćeni i remaining qty = 0.
-- Splash screen s prilagođenim brendom.
+- Runtime mode indikator (sunce/mjesec) na floor planu + ručni refresh moda.
 
 ## API endpointi koje Android koristi
 
@@ -62,6 +72,7 @@ Pregledano je svih 31 issue-a.
 ### Floor/layout
 
 - `GET /api/pos/active-layout/`
+- `GET /api/pos/runtime-mode/`
 - `GET /api/pos/layouts/allowed/`
 - `GET /api/pos/table-status/?layout_id=...`
 
@@ -70,6 +81,8 @@ Pregledano je svih 31 issue-a.
 - `GET /api/drink-categories/?level=2`
 - `GET /api/pos/drink-categories/display/`
 - `GET /api/pos/products/search/?drink_category_id=...&q=...&limit=100&sort=popular`
+- `GET /api/pos/products/{artikl_id}/modifiers/`
+- `POST /api/pos/products/{artikl_id}/bundle-price/`
 - fallback/legacy podrška: `GET /api/artikli/`
 
 ### Check + items
@@ -89,9 +102,13 @@ Pregledano je svih 31 issue-a.
 
 ### Settlement (Payment Sprint 1)
 
-- `POST /api/pos/checks/{check_id}/settlements/parts/prepare/`
+- `POST /api/pos/checks/{check_id}/prepare-settlement/`
 - `POST /api/pos/checks/{check_id}/settlements/parts/{part_id}/pay-cash/`
 - `POST /api/pos/checks/{check_id}/settlements/parts/{part_id}/pay-card/confirm/`
+- `POST /api/pos/checks/{check_id}/pay-card/confirm/`
+- `GET /api/pos/checks/{check_id}/settlement-state/`
+- `GET /api/pos/checks/{check_id}/round-state/`
+- `POST /api/pos/checks/{check_id}/receipts/{receipt_id}/fiscalize/`
 
 Cash contract napomena:
 - `prepare` može i bez body-a (backend auto full CASH part).
@@ -167,12 +184,10 @@ Napomena:
 
 ## Otvorene stavke
 
-- `#25`: finalizirati preostali security checklist za sensitive akcije (policy/per-role coverage).
-- `#29`: backend multi-layout access policy (user assignments/default/fallback) i dodatno poravnanje UX ponašanja.
-- Payment Sprint 2:
-  - tip UX (`0/5/10/custom`) i card tip calculation,
-  - Viva callback hardening + retry UX,
-  - full UAT scenariji za approved/declined/retry.
+- `#33`: tips per card settlement part (epic).
+- `#42`: card tip sheet (`0/5/10/custom`) + confirm UI.
+- `#43`: tip calculation (cents) + Viva request/confirm mapping.
+- `#44`: declined/retry flow testovi + receipt handoff.
 
 ---
 

@@ -124,7 +124,49 @@ data class SettlementPayCardConfirmRequestDto(
     @SerializedName("issue_receipt")
     val issueReceipt: Boolean? = null,
     @SerializedName("currency")
-    val currency: String = "EUR"
+    val currency: String = "EUR",
+    @SerializedName("rrn")
+    val rrn: String? = null,
+    @SerializedName("reference_number")
+    val referenceNumber: String? = null,
+    @SerializedName("authorisation_code")
+    val authorisationCode: String? = null,
+    @SerializedName("tid")
+    val tid: String? = null,
+    @SerializedName("order_code")
+    val orderCode: String? = null,
+    @SerializedName("short_order_code")
+    val shortOrderCode: String? = null,
+    @SerializedName("transaction_date")
+    val transactionDate: String? = null,
+    @SerializedName("payment_method")
+    val paymentMethod: String? = null,
+    @SerializedName("card_type")
+    val cardType: String? = null,
+    @SerializedName("account_number")
+    val accountNumber: String? = null,
+    @SerializedName("verification_method")
+    val verificationMethod: String? = null,
+    @SerializedName("aid")
+    val aid: String? = null,
+    @SerializedName("bank_id")
+    val bankId: String? = null,
+    @SerializedName("transaction_type_id")
+    val transactionTypeId: String? = null,
+    @SerializedName("transaction_event_id")
+    val transactionEventId: String? = null,
+    @SerializedName("surcharge_amount")
+    val surchargeAmount: String? = null,
+    @SerializedName("customer_trns")
+    val customerTrns: String? = null,
+    @SerializedName("provider_status")
+    val providerStatus: String? = null,
+    @SerializedName("provider_action")
+    val providerAction: String? = null,
+    @SerializedName("provider_message")
+    val providerMessage: String? = null,
+    @SerializedName("provider_payload")
+    val providerPayload: Map<String, String>? = null
 )
 
 data class BundlePriceRequestDto(
