@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <queries>
-        <package android:name="com.vivawallet.spoc.payapp.demo" />
+        <package android:name="com.vivawallet.spoc.payapp" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="vivapayclient" />

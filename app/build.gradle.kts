@@ -51,7 +51,7 @@ android {
     val vivaObligationsBearerToken = propertyOrEnv("VIVA_OBLIGATIONS_BEARER_TOKEN", "")
     val vivaCallbackScheme = propertyOrEnv("VIVA_CALLBACK_SCHEME", "barionviva")
     val vivaCallbackHost = propertyOrEnv("VIVA_CALLBACK_HOST", "result")
-    val vivaTerminalPackage = propertyOrEnv("VIVA_TERMINAL_PACKAGE", "com.vivawallet.spoc.payapp.demo")
+    val vivaTerminalPackage = propertyOrEnv("VIVA_TERMINAL_PACKAGE", "com.vivawallet.spoc.payapp")
     val vivaCallbackTimeoutMs = propertyOrEnv("VIVA_CALLBACK_TIMEOUT_MS", "45000")
 
     fun asBuildConfigString(value: String): String {
@@ -68,8 +68,8 @@ android {
         applicationId = "pos.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 129
-        versionName = "1.129"
+        versionCode = 130
+        versionName = "1.130"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
