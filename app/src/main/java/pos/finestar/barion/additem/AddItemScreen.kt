@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -58,10 +60,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.util.Locale
+import kotlin.math.abs
 import pos.finestar.barion.domain.model.ModifierType
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +75,8 @@ fun AddItemScreen(
     onBack: () -> Unit,
     onQueryChanged: (String) -> Unit,
     onCategorySelected: (Long?) -> Unit,
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
     onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
     onModifierDialogDismiss: () -> Unit,
@@ -195,6 +201,8 @@ fun AddItemScreen(
                                         cartQtyByProductId = state.cartQtyByProductId,
                                         hasModifiersByProductId = state.hasModifiersByProductId,
                                         cartConfiguredByProductId = state.cartConfiguredByProductId,
+                                        onSwipeLeft = onSwipeLeft,
+                                        onSwipeRight = onSwipeRight,
                                         onProductTapped = onProductTapped,
                                         onProductLongPressed = onProductLongPressed,
                                         modifier = Modifier
@@ -217,6 +225,8 @@ fun AddItemScreen(
                                         cartQtyByProductId = state.cartQtyByProductId,
                                         hasModifiersByProductId = state.hasModifiersByProductId,
                                         cartConfiguredByProductId = state.cartConfiguredByProductId,
+                                        onSwipeLeft = onSwipeLeft,
+                                        onSwipeRight = onSwipeRight,
                                         onProductTapped = onProductTapped,
                                         onProductLongPressed = onProductLongPressed,
                                         modifier = Modifier.fillMaxSize()
@@ -273,8 +283,19 @@ private fun CategoriesColumn(
     onCategorySelected: (Long?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val listState = rememberLazyListState()
+    val selectedIndex = categories.indexOfFirst { it.id == selectedId }
+    LaunchedEffect(selectedIndex, categories.size) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex }
+        if (!isVisible) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
+
     LazyColumn(
         modifier = modifier,
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         items(categories.size) { index ->
@@ -294,7 +315,20 @@ private fun CategoriesRow(
     selectedId: Long?,
     onCategorySelected: (Long?) -> Unit
 ) {
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    val listState = rememberLazyListState()
+    val selectedIndex = categories.indexOfFirst { it.id == selectedId }
+    LaunchedEffect(selectedIndex, categories.size) {
+        if (selectedIndex < 0) return@LaunchedEffect
+        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex }
+        if (!isVisible) {
+            listState.animateScrollToItem(selectedIndex)
+        }
+    }
+
+    LazyRow(
+        state = listState,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
         items(categories.size) { index ->
             val category = categories[index]
             CategoryItem(
@@ -340,13 +374,32 @@ private fun ProductsGrid(
     cartQtyByProductId: Map<Long, Int>,
     hasModifiersByProductId: Map<Long, Boolean>,
     cartConfiguredByProductId: Map<Long, Boolean>,
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
     onProductTapped: (AddItemViewModel.ProductUi) -> Unit,
     onProductLongPressed: (AddItemViewModel.ProductUi) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val swipeThresholdPx = with(LocalDensity.current) { 48.dp.toPx() }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 110.dp),
-        modifier = modifier,
+        modifier = modifier.pointerInput(swipeThresholdPx, onSwipeLeft, onSwipeRight) {
+            var totalDx = 0f
+            var fired = false
+            detectHorizontalDragGestures(
+                onDragStart = {
+                    totalDx = 0f
+                    fired = false
+                },
+                onHorizontalDrag = { _, dragAmount ->
+                    if (fired) return@detectHorizontalDragGestures
+                    totalDx += dragAmount
+                    if (abs(totalDx) < swipeThresholdPx) return@detectHorizontalDragGestures
+                    fired = true
+                    if (totalDx < 0f) onSwipeLeft() else onSwipeRight()
+                }
+            )
+        },
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {

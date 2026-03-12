@@ -152,6 +152,14 @@ class AddItemViewModel @Inject constructor(
         searchProductsDebounced()
     }
 
+    fun onCategorySwipeLeft() {
+        shiftCategoryBy(delta = 1)
+    }
+
+    fun onCategorySwipeRight() {
+        shiftCategoryBy(delta = -1)
+    }
+
     fun onProductTapped(product: ProductUi) {
         addProductToCart(product = product, qty = 1)
     }
@@ -656,6 +664,21 @@ class AddItemViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun shiftCategoryBy(delta: Int) {
+        if (delta == 0) return
+        val state = _uiState.value
+        val categories = state.categories
+        if (categories.isEmpty()) return
+
+        val currentIndex = categories.indexOfFirst { it.id == state.selectedCategoryId }
+            .takeIf { it >= 0 } ?: 0
+        val targetIndex = (currentIndex + delta).coerceIn(0, categories.lastIndex)
+        if (targetIndex == currentIndex) return
+
+        _uiState.update { it.copy(selectedCategoryId = categories[targetIndex].id) }
+        searchProductsDebounced()
     }
 
     private fun refreshCatalogInBackground(query: String, selectedCategoryId: Long?) {

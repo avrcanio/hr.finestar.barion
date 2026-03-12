@@ -221,6 +221,8 @@ fun BarionNavHost() {
                 onBack = { navController.popBackStack() },
                 onQueryChanged = vm::onQueryChanged,
                 onCategorySelected = vm::onCategorySelected,
+                onSwipeLeft = vm::onCategorySwipeLeft,
+                onSwipeRight = vm::onCategorySwipeRight,
                 onProductTapped = vm::onProductTapped,
                 onProductLongPressed = vm::onProductLongPressed,
                 onModifierDialogDismiss = vm::onModifierDialogDismiss,
