@@ -68,8 +68,8 @@ android {
         applicationId = "pos.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 125
-        versionName = "1.125"
+        versionCode = 129
+        versionName = "1.129"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")

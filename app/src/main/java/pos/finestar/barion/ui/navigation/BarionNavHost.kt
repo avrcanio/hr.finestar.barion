@@ -200,10 +200,18 @@ fun BarionNavHost() {
             val vm: AddItemViewModel = hiltViewModel()
             val uiState = vm.uiState.collectAsStateWithLifecycle()
 
-            LaunchedEffect(Unit) {
-                vm.events.collect { event ->
-                    when (event) {
-                        AddItemViewModel.Event.NavigateBack -> navController.popBackStack()
+            LaunchedEffect(uiState.value.navigateToCheckRequestId) {
+                if (uiState.value.navigateToCheckRequestId > 0L) {
+                    val popped = navController.popBackStack()
+                    if (!popped) {
+                        navController.navigate(
+                            NavRoutes.checkRoute(
+                                checkId = uiState.value.checkId,
+                                tableName = uiState.value.tableName
+                            )
+                        ) {
+                            launchSingleTop = true
+                        }
                     }
                 }
             }

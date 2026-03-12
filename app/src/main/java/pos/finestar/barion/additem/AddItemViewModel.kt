@@ -5,15 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -113,7 +111,8 @@ class AddItemViewModel @Inject constructor(
         val modifierDialogDelta: Double? = null,
         val showCartDialog: Boolean = false,
         val error: String? = null,
-        val message: String? = null
+        val message: String? = null,
+        val navigateToCheckRequestId: Long = 0L
     ) {
         val cartItemsCount: Int get() = cart.sumOf { it.qty }
         val cartSubtotal: Double get() = cart.sumOf { it.lineTotal }
@@ -123,15 +122,13 @@ class AddItemViewModel @Inject constructor(
             get() = cart.groupBy { it.productId }.mapValues { (_, lines) -> lines.any { it.isConfigured } }
     }
 
-    sealed interface Event {
-        data object NavigateBack : Event
-    }
-
     private val checkId: Long = savedStateHandle[NavRoutes.ARG_CHECK_ID] ?: 0L
     private val tableName: String = savedStateHandle[NavRoutes.ARG_TABLE_NAME] ?: "Unknown"
     private var searchJob: Job? = null
     private val modifierHintsInFlight = Collections.synchronizedSet(mutableSetOf<Long>())
     private val cartLineIdGenerator = AtomicLong(1L)
+    private val navigateToCheckRequestIdGenerator = AtomicLong(0L)
+    private val sendRoundInFlight = AtomicBoolean(false)
 
     private val _uiState = MutableStateFlow(
         UiState(
@@ -140,9 +137,6 @@ class AddItemViewModel @Inject constructor(
         )
     )
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
-
-    private val _events = MutableSharedFlow<Event>()
-    val events: SharedFlow<Event> = _events.asSharedFlow()
 
     init {
         loadInitial()
@@ -508,15 +502,18 @@ class AddItemViewModel @Inject constructor(
     }
 
     fun onSendRound() {
-        val cart = _uiState.value.cart
+        if (!sendRoundInFlight.compareAndSet(false, true)) return
+        val stateSnapshot = _uiState.value
+        val cart = stateSnapshot.cart
         if (cart.isEmpty()) {
+            sendRoundInFlight.set(false)
             _uiState.update { it.copy(message = "Košarica je prazna.") }
             return
         }
 
+        _uiState.update { it.copy(isSubmitting = true, error = null, message = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, error = null, message = null) }
-            runCatching {
+            val addItemsResult = runCatching {
                 cart.forEach { item ->
                     val qty = if (item.isConfigured) 1 else item.qty
                     addItemToCheckUseCase(
@@ -529,31 +526,53 @@ class AddItemViewModel @Inject constructor(
                         note = item.note
                     )
                 }
-                sendToBarUseCase(checkId = checkId)
-            }.onSuccess {
-                _uiState.update {
-                    it.copy(
-                        isSubmitting = false,
-                        showCartDialog = false,
-                        cart = emptyList(),
-                        message = "Runda je poslana na šank."
-                    )
-                }
-                _events.emit(Event.NavigateBack)
-            }.onFailure { throwable ->
-                _uiState.update {
-                    it.copy(
-                        isSubmitting = false,
-                        error = throwable.message ?: "Slanje runde nije uspjelo.",
-                        message = throwable.message ?: "Slanje runde nije uspjelo."
-                    )
-                }
             }
+
+            if (addItemsResult.isFailure) {
+                val throwable = addItemsResult.exceptionOrNull()
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        error = throwable?.message ?: "Dodavanje stavki nije uspjelo.",
+                        message = throwable?.message ?: "Dodavanje stavki nije uspjelo."
+                    )
+                }
+                sendRoundInFlight.set(false)
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    isSubmitting = false,
+                    showCartDialog = false,
+                    cart = emptyList()
+                )
+            }
+
+            val sendToBarResult = runCatching { sendToBarUseCase(checkId = checkId) }
+            _uiState.update { state ->
+                state.copy(
+                    message = if (sendToBarResult.isSuccess) {
+                        "Runda je poslana na šank."
+                    } else {
+                        "Stavke su dodane, ali slanje na šank trenutno nije uspjelo."
+                    },
+                    error = sendToBarResult.exceptionOrNull()?.message,
+                    navigateToCheckRequestId = navigateToCheckRequestIdGenerator.incrementAndGet()
+                )
+            }
+
+            sendRoundInFlight.set(false)
         }
     }
 
     fun onMessageShown() {
-        _uiState.update { it.copy(message = null) }
+        _uiState.update {
+            it.copy(
+                message = null,
+                error = null
+            )
+        }
     }
 
     private fun loadInitial() {
