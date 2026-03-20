@@ -1,4 +1,4 @@
 # AGENTS
 
 ## GitHub CLI
-- Za `gh` CLI koristi token iz `/home/hosts.yml`.
+- For the `gh` CLI, use the token from `/home/hosts.yml`.

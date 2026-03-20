@@ -633,11 +633,12 @@ class AddItemViewModel @Inject constructor(
             val querySnapshot = state.query
             val categorySnapshot = state.selectedCategoryId
             runCatching {
-                searchProductsUseCase(
+                loadProductsWithCategoryNameExpansion(
                     query = querySnapshot,
-                    drinkCategoryId = categorySnapshot,
-                    forceRefresh = false
-                ).map { it.toUi() }
+                    selectedCategoryId = categorySnapshot,
+                    forceRefresh = false,
+                    categories = state.categories
+                )
             }.onSuccess { products ->
                 val latest = _uiState.value
                 if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
@@ -651,11 +652,12 @@ class AddItemViewModel @Inject constructor(
             }
 
             runCatching {
-                searchProductsUseCase(
+                loadProductsWithCategoryNameExpansion(
                     query = querySnapshot,
-                    drinkCategoryId = categorySnapshot,
-                    forceRefresh = true
-                ).map { it.toUi() }
+                    selectedCategoryId = categorySnapshot,
+                    forceRefresh = true,
+                    categories = state.categories
+                )
             }.onSuccess { freshProducts ->
                 val latest = _uiState.value
                 if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
@@ -664,6 +666,49 @@ class AddItemViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun loadProductsWithCategoryNameExpansion(
+        query: String,
+        selectedCategoryId: Long?,
+        forceRefresh: Boolean,
+        categories: List<CategoryUi>
+    ): List<ProductUi> {
+        val normalizedQuery = query.trim()
+        val baseProducts = searchProductsUseCase(
+            query = normalizedQuery,
+            drinkCategoryId = selectedCategoryId,
+            forceRefresh = forceRefresh
+        )
+
+        if (normalizedQuery.isBlank()) {
+            return baseProducts.map { it.toUi() }
+        }
+
+        val matchedCategoryIds = categories
+            .asSequence()
+            .filter { it.id != null }
+            .filter { it.label.contains(normalizedQuery, ignoreCase = true) }
+            .mapNotNull { it.id }
+            .toList()
+        val categoryIdsToExpand = if (selectedCategoryId != null) {
+            matchedCategoryIds.filter { it == selectedCategoryId }
+        } else {
+            matchedCategoryIds
+        }
+        if (categoryIdsToExpand.isEmpty()) {
+            return baseProducts.map { it.toUi() }
+        }
+
+        val categoryProducts = categoryIdsToExpand.flatMap { categoryId ->
+            searchProductsUseCase(
+                query = null,
+                drinkCategoryId = categoryId,
+                forceRefresh = forceRefresh
+            )
+        }
+        val mergedProducts = (baseProducts + categoryProducts).distinctBy { it.id }
+        return mergedProducts.map { it.toUi() }
     }
 
     private fun shiftCategoryBy(delta: Int) {

@@ -41,7 +41,7 @@ class AddItemViewModelTest {
         advanceUntilIdle()
 
         assertEquals(10L, vm.uiState.value.selectedCategoryId)
-        assertEquals(listOf("Kava espresso"), vm.uiState.value.products.map { it.name })
+        assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
@@ -54,7 +54,7 @@ class AddItemViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, vm.uiState.value.selectedCategoryId)
-        assertEquals(listOf("Kava espresso", "Pivo"), vm.uiState.value.products.map { it.name })
+        assertEquals(listOf("Kava espresso", "Latte", "Pivo", "Lager"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
@@ -73,11 +73,65 @@ class AddItemViewModelTest {
         advanceUntilIdle()
 
         assertEquals(20L, vm.uiState.value.selectedCategoryId)
-        assertEquals(listOf("Pivo"), vm.uiState.value.products.map { it.name })
+        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
     }
 
-    private fun createViewModel(): AddItemViewModel {
+    @Test
+    fun `query matching category name returns union of name and category results`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onQueryChanged("kav")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
+    }
+
+    @Test
+    fun `query matching selected category expands only selected category`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onCategorySelected(20L)
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        vm.onQueryChanged("piv")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
+    }
+
+    @Test
+    fun `union removes duplicates when product matches both name and category expansion`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onQueryChanged("kav")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L, 3L), vm.uiState.value.products.map { it.id })
+    }
+
+    @Test
+    fun `blank query does not trigger category expansion calls`() = runTest {
         val catalogRepo = FakeCatalogRepository()
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+        catalogRepo.clearSearchCalls()
+
+        vm.onCategorySelected(20L)
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        val nullQueryCalls = catalogRepo.searchCalls.count { it.query == null }
+        assertEquals(0, nullQueryCalls)
+    }
+
+    private fun createViewModel(catalogRepo: FakeCatalogRepository = FakeCatalogRepository()): AddItemViewModel {
         val checkRepo = FakeCheckRepository()
         return AddItemViewModel(
             savedStateHandle = SavedStateHandle(
@@ -96,13 +150,23 @@ class AddItemViewModelTest {
     }
 
     private class FakeCatalogRepository : CatalogRepository {
+        data class SearchCall(
+            val query: String?,
+            val drinkCategoryId: Long?,
+            val forceRefresh: Boolean
+        )
+
+        val searchCalls = mutableListOf<SearchCall>()
+
         private val categories = listOf(
             DrinkCategory(id = 10L, name = "Kave", sortOrder = 1),
             DrinkCategory(id = 20L, name = "Pivo", sortOrder = 2)
         )
         private val products = listOf(
             CatalogProduct(id = 1L, name = "Kava espresso", drinkCategoryId = 10L, price = 1.8),
-            CatalogProduct(id = 2L, name = "Pivo", drinkCategoryId = 20L, price = 3.4)
+            CatalogProduct(id = 3L, name = "Latte", drinkCategoryId = 10L, price = 2.4),
+            CatalogProduct(id = 2L, name = "Pivo", drinkCategoryId = 20L, price = 3.4),
+            CatalogProduct(id = 4L, name = "Lager", drinkCategoryId = 20L, price = 3.6)
         )
 
         override suspend fun getDrinkCategories(
@@ -118,8 +182,17 @@ class AddItemViewModelTest {
             drinkCategoryId: Long?,
             forceRefresh: Boolean
         ): List<CatalogProduct> {
+            searchCalls += SearchCall(
+                query = query,
+                drinkCategoryId = drinkCategoryId,
+                forceRefresh = forceRefresh
+            )
             val byCategory = products.filter { drinkCategoryId == null || it.drinkCategoryId == drinkCategoryId }
             return byCategory.filter { query.isNullOrBlank() || it.name.contains(query, ignoreCase = true) }
+        }
+
+        fun clearSearchCalls() {
+            searchCalls.clear()
         }
 
         override suspend fun getProductModifiers(
