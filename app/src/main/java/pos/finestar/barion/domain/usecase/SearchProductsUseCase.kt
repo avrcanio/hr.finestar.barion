@@ -9,12 +9,12 @@ class SearchProductsUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         query: String?,
-        drinkCategoryId: Long?,
+        categoryId: Long?,
         forceRefresh: Boolean = false
     ): List<CatalogProduct> {
         return repository.searchProducts(
             query = query,
-            drinkCategoryId = drinkCategoryId,
+            categoryId = categoryId,
             forceRefresh = forceRefresh
         )
     }

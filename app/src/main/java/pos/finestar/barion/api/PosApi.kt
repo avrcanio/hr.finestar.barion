@@ -60,21 +60,21 @@ interface PosApi {
     @GET("/api/pos/layouts/allowed/")
     suspend fun getAllowedLayouts(): AllowedLayoutsDto
 
-    @GET("/api/drink-categories/")
-    suspend fun getDrinkCategories(
+    @GET("/api/categories/")
+    suspend fun getCategories(
         @Query("include_inactive") includeInactive: Int? = null,
         @Query("level") level: Int? = null
     ): JsonElement
 
-    @GET("/api/pos/drink-categories/display/")
-    suspend fun getDrinkCategoryDisplay(
+    @GET("/api/pos/categories/display/")
+    suspend fun getCategoryDisplay(
         @Query("root_id") rootId: Long
     ): JsonElement
 
     @GET("/api/pos/products/search/")
     suspend fun searchProducts(
         @Query("q") query: String? = null,
-        @Query("drink_category_id") drinkCategoryId: Long? = null,
+        @Query("category_id") categoryId: Long? = null,
         @Query("limit") limit: Int? = 100,
         @Query("sort") sort: String? = "popular"
     ): JsonElement
@@ -92,7 +92,7 @@ interface PosApi {
 
     @GET("/api/artikli/")
     suspend fun getArtikli(
-        @Query("drink_category_id") drinkCategoryId: Long? = null,
+        @Query("category_id") categoryId: Long? = null,
         @Query("q") query: String? = null,
         @Query("is_sellable") isSellable: Int? = 1,
         @Query("is_stock_item") isStockItem: Int? = null

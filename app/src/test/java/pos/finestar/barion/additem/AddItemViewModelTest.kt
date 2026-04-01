@@ -11,13 +11,13 @@ import org.junit.Test
 import pos.finestar.barion.domain.model.BundlePricePreview
 import pos.finestar.barion.domain.model.CatalogProduct
 import pos.finestar.barion.domain.model.CheckSession
-import pos.finestar.barion.domain.model.DrinkCategory
+import pos.finestar.barion.domain.model.Category
 import pos.finestar.barion.domain.model.ProductModifiersConfig
 import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.repo.CatalogRepository
 import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
+import pos.finestar.barion.domain.usecase.GetCategoriesUseCase
 import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
@@ -140,7 +140,7 @@ class AddItemViewModelTest {
                     NavRoutes.ARG_TABLE_NAME to "T1"
                 )
             ),
-            getDrinkCategoriesUseCase = GetDrinkCategoriesUseCase(catalogRepo),
+            getCategoriesUseCase = GetCategoriesUseCase(catalogRepo),
             searchProductsUseCase = SearchProductsUseCase(catalogRepo),
             getProductModifiersUseCase = GetProductModifiersUseCase(catalogRepo),
             previewBundlePriceUseCase = PreviewBundlePriceUseCase(catalogRepo),
@@ -152,42 +152,42 @@ class AddItemViewModelTest {
     private class FakeCatalogRepository : CatalogRepository {
         data class SearchCall(
             val query: String?,
-            val drinkCategoryId: Long?,
+            val categoryId: Long?,
             val forceRefresh: Boolean
         )
 
         val searchCalls = mutableListOf<SearchCall>()
 
         private val categories = listOf(
-            DrinkCategory(id = 10L, name = "Kave", sortOrder = 1),
-            DrinkCategory(id = 20L, name = "Pivo", sortOrder = 2)
+            Category(id = 10L, name = "Kave", sortOrder = 1),
+            Category(id = 20L, name = "Pivo", sortOrder = 2)
         )
         private val products = listOf(
-            CatalogProduct(id = 1L, name = "Kava espresso", drinkCategoryId = 10L, price = 1.8),
-            CatalogProduct(id = 3L, name = "Latte", drinkCategoryId = 10L, price = 2.4),
-            CatalogProduct(id = 2L, name = "Pivo", drinkCategoryId = 20L, price = 3.4),
-            CatalogProduct(id = 4L, name = "Lager", drinkCategoryId = 20L, price = 3.6)
+            CatalogProduct(id = 1L, name = "Kava espresso", categoryId = 10L, price = 1.8),
+            CatalogProduct(id = 3L, name = "Latte", categoryId = 10L, price = 2.4),
+            CatalogProduct(id = 2L, name = "Pivo", categoryId = 20L, price = 3.4),
+            CatalogProduct(id = 4L, name = "Lager", categoryId = 20L, price = 3.6)
         )
 
-        override suspend fun getDrinkCategories(
+        override suspend fun getCategories(
             includeInactive: Boolean,
             level: Int?,
             forceRefresh: Boolean
-        ): List<DrinkCategory> = categories
+        ): List<Category> = categories
 
-        override suspend fun getDrinkCategoryDisplay(rootId: Long) = error("unused")
+        override suspend fun getCategoryDisplay(rootId: Long) = error("unused")
 
         override suspend fun searchProducts(
             query: String?,
-            drinkCategoryId: Long?,
+            categoryId: Long?,
             forceRefresh: Boolean
         ): List<CatalogProduct> {
             searchCalls += SearchCall(
                 query = query,
-                drinkCategoryId = drinkCategoryId,
+                categoryId = categoryId,
                 forceRefresh = forceRefresh
             )
-            val byCategory = products.filter { drinkCategoryId == null || it.drinkCategoryId == drinkCategoryId }
+            val byCategory = products.filter { categoryId == null || it.categoryId == categoryId }
             return byCategory.filter { query.isNullOrBlank() || it.name.contains(query, ignoreCase = true) }
         }
 

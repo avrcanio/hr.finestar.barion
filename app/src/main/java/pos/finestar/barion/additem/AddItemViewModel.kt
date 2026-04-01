@@ -24,7 +24,7 @@ import pos.finestar.barion.domain.model.ProductModifiersConfig
 import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.model.SelectionMode
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
-import pos.finestar.barion.domain.usecase.GetDrinkCategoriesUseCase
+import pos.finestar.barion.domain.usecase.GetCategoriesUseCase
 import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
@@ -34,7 +34,7 @@ import pos.finestar.barion.ui.navigation.NavRoutes
 @HiltViewModel
 class AddItemViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val getDrinkCategoriesUseCase: GetDrinkCategoriesUseCase,
+    private val getCategoriesUseCase: GetCategoriesUseCase,
     private val searchProductsUseCase: SearchProductsUseCase,
     private val getProductModifiersUseCase: GetProductModifiersUseCase,
     private val previewBundlePriceUseCase: PreviewBundlePriceUseCase,
@@ -587,14 +587,14 @@ class AddItemViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             runCatching {
-                val categories = getDrinkCategoriesUseCase(level = 2, forceRefresh = false)
+                val categories = getCategoriesUseCase(level = 2, forceRefresh = false)
                     .sortedBy { it.labelForSort() }
                     .map { CategoryUi(id = it.id, label = it.name) }
                 val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + categories
                 val initialCategoryId: Long? = null
                 val products = searchProductsUseCase(
                     query = null,
-                    drinkCategoryId = initialCategoryId,
+                    categoryId = initialCategoryId,
                     forceRefresh = false
                 ).map { it.toUi() }
 
@@ -677,7 +677,7 @@ class AddItemViewModel @Inject constructor(
         val normalizedQuery = query.trim()
         val baseProducts = searchProductsUseCase(
             query = normalizedQuery,
-            drinkCategoryId = selectedCategoryId,
+            categoryId = selectedCategoryId,
             forceRefresh = forceRefresh
         )
 
@@ -703,7 +703,7 @@ class AddItemViewModel @Inject constructor(
         val categoryProducts = categoryIdsToExpand.flatMap { categoryId ->
             searchProductsUseCase(
                 query = null,
-                drinkCategoryId = categoryId,
+                categoryId = categoryId,
                 forceRefresh = forceRefresh
             )
         }
@@ -729,13 +729,13 @@ class AddItemViewModel @Inject constructor(
     private fun refreshCatalogInBackground(query: String, selectedCategoryId: Long?) {
         viewModelScope.launch {
             runCatching {
-                val freshCategories = getDrinkCategoriesUseCase(level = 2, forceRefresh = true)
+                val freshCategories = getCategoriesUseCase(level = 2, forceRefresh = true)
                     .sortedBy { it.labelForSort() }
                     .map { CategoryUi(id = it.id, label = it.name) }
                 val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + freshCategories
                 val freshProducts = searchProductsUseCase(
                     query = query.takeIf { it.isNotBlank() },
-                    drinkCategoryId = selectedCategoryId,
+                    categoryId = selectedCategoryId,
                     forceRefresh = true
                 ).map { it.toUi() }
                 categoriesWithAll to freshProducts
@@ -795,7 +795,7 @@ class AddItemViewModel @Inject constructor(
         return "$base/$path"
     }
 
-    private fun pos.finestar.barion.domain.model.DrinkCategory.labelForSort(): String {
+    private fun pos.finestar.barion.domain.model.Category.labelForSort(): String {
         return "${sortOrder.toString().padStart(6, '0')}_${name.lowercase()}"
     }
 }

@@ -78,9 +78,9 @@ Pregledano je svih 48 issue-a.
 
 ### Katalog
 
-- `GET /api/drink-categories/?level=2`
-- `GET /api/pos/drink-categories/display/`
-- `GET /api/pos/products/search/?drink_category_id=...&q=...&limit=100&sort=popular`
+- `GET /api/categories/?level=2`
+- `GET /api/pos/categories/display/`
+- `GET /api/pos/products/search/?category_id=...&q=...&limit=100&sort=popular`
 - `GET /api/pos/products/{artikl_id}/modifiers/`
 - `POST /api/pos/products/{artikl_id}/bundle-price/`
 - fallback/legacy podrška: `GET /api/artikli/`
@@ -120,7 +120,7 @@ Implementiran je Room cache + SWR (stale-while-revalidate) za ključne endpointe
 
 - `/api/pos/active-layout/`
 - `/api/pos/layouts/allowed/`
-- `/api/drink-categories/`
+- `/api/categories/`
 - `/api/pos/products/search/`
 - `/api/pos/checks/{id}/items/`
 

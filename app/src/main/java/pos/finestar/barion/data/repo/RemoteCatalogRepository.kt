@@ -15,8 +15,8 @@ import pos.finestar.barion.data.local.ApiCacheDao
 import pos.finestar.barion.data.local.ApiCacheEntity
 import pos.finestar.barion.domain.model.BundlePricePreview
 import pos.finestar.barion.domain.model.CatalogProduct
-import pos.finestar.barion.domain.model.DrinkCategory
-import pos.finestar.barion.domain.model.DrinkCategoryDisplay
+import pos.finestar.barion.domain.model.Category
+import pos.finestar.barion.domain.model.CategoryDisplay
 import pos.finestar.barion.domain.model.ModifierType
 import pos.finestar.barion.domain.model.ProductModifierGroup
 import pos.finestar.barion.domain.model.ProductModifierOption
@@ -37,8 +37,8 @@ class RemoteCatalogRepository @Inject constructor(
         val savedAtMillis: Long
     )
 
-    private val categoriesCache = ConcurrentHashMap<String, CacheEntry<List<DrinkCategory>>>()
-    private val displayCache = ConcurrentHashMap<Long, CacheEntry<DrinkCategoryDisplay>>()
+    private val categoriesCache = ConcurrentHashMap<String, CacheEntry<List<Category>>>()
+    private val displayCache = ConcurrentHashMap<Long, CacheEntry<CategoryDisplay>>()
     private val productsCache = ConcurrentHashMap<String, CacheEntry<List<CatalogProduct>>>()
     private val modifiersCache = ConcurrentHashMap<Long, CacheEntry<ProductModifiersConfig>>()
 
@@ -46,21 +46,21 @@ class RemoteCatalogRepository @Inject constructor(
     private val categoriesTtlMillis = 6 * 60 * 60 * 1000L
     private val productsTtlMillis = 2 * 60 * 1000L
 
-    override suspend fun getDrinkCategories(
+    override suspend fun getCategories(
         includeInactive: Boolean,
         level: Int?,
         forceRefresh: Boolean
-    ): List<DrinkCategory> {
+    ): List<Category> {
         val key = "include_inactive_${if (includeInactive) 1 else 0}_level_${level ?: 0}"
         val cached = categoriesCache[key]
         if (!forceRefresh && cached != null && isFresh(cached.savedAtMillis)) return cached.value
 
-        val roomCacheKey = "drink_categories:$key"
+        val roomCacheKey = "categories:$key"
         if (!forceRefresh) {
-            val roomCached = readCacheEntry<List<DrinkCategory>>(
+            val roomCached = readCacheEntry<List<Category>>(
                 key = roomCacheKey,
                 ttlMillis = categoriesTtlMillis,
-                type = object : TypeToken<List<DrinkCategory>>() {}.type
+                type = object : TypeToken<List<Category>>() {}.type
             )
             if (roomCached != null) {
                 categoriesCache[key] = CacheEntry(
@@ -72,7 +72,7 @@ class RemoteCatalogRepository @Inject constructor(
         }
 
         try {
-            val payload = api.getDrinkCategories(
+            val payload = api.getCategories(
                 includeInactive = if (includeInactive) 1 else null,
                 level = level
             )
@@ -86,8 +86,8 @@ class RemoteCatalogRepository @Inject constructor(
                 else -> JsonArray()
             }
 
-            val fresh = rawList.mapNotNull { it.asJsonObjectOrNull()?.toDrinkCategory() }
-                .sortedWith(compareBy<DrinkCategory> { it.sortOrder }.thenBy { it.name })
+            val fresh = rawList.mapNotNull { it.asJsonObjectOrNull()?.toCategory() }
+                .sortedWith(compareBy<Category> { it.sortOrder }.thenBy { it.name })
 
             writeCacheEntry(roomCacheKey, fresh)
             categoriesCache[key] = CacheEntry(
@@ -96,26 +96,26 @@ class RemoteCatalogRepository @Inject constructor(
             )
             return fresh
         } catch (t: Throwable) {
-            return cached?.value ?: readCacheEntry<List<DrinkCategory>>(
+            return cached?.value ?: readCacheEntry<List<Category>>(
                 key = roomCacheKey,
                 ttlMillis = Long.MAX_VALUE,
-                type = object : TypeToken<List<DrinkCategory>>() {}.type
+                type = object : TypeToken<List<Category>>() {}.type
             ) ?: throw t
         }
     }
 
-    override suspend fun getDrinkCategoryDisplay(rootId: Long): DrinkCategoryDisplay {
+    override suspend fun getCategoryDisplay(rootId: Long): CategoryDisplay {
         val cached = displayCache[rootId]
         if (cached != null && isFresh(cached.savedAtMillis)) return cached.value
 
         return runCatching {
-            val payload = api.getDrinkCategoryDisplay(rootId)
+            val payload = api.getCategoryDisplay(rootId)
             val payloadObject = payload.asJsonObjectOrNull()
             val categories = (payloadObject?.getArray("categories") ?: JsonArray())
-                .mapNotNull { it.asJsonObjectOrNull()?.toDrinkCategory() }
-                .sortedWith(compareBy<DrinkCategory> { it.sortOrder }.thenBy { it.name })
+                .mapNotNull { it.asJsonObjectOrNull()?.toCategory() }
+                .sortedWith(compareBy<Category> { it.sortOrder }.thenBy { it.name })
 
-            DrinkCategoryDisplay(
+            CategoryDisplay(
                 rootId = payloadObject?.getLong("root_id") ?: rootId,
                 displayLevel = payloadObject?.getInt("display_level") ?: 1,
                 categories = categories
@@ -132,11 +132,11 @@ class RemoteCatalogRepository @Inject constructor(
 
     override suspend fun searchProducts(
         query: String?,
-        drinkCategoryId: Long?,
+        categoryId: Long?,
         forceRefresh: Boolean
     ): List<CatalogProduct> {
         val normalizedQuery = query?.trim().orEmpty()
-        val key = "${drinkCategoryId ?: 0L}|${normalizedQuery.lowercase()}"
+        val key = "${categoryId ?: 0L}|${normalizedQuery.lowercase()}"
         val cached = productsCache[key]
         if (!forceRefresh && cached != null && isFresh(cached.savedAtMillis)) return cached.value
 
@@ -159,7 +159,7 @@ class RemoteCatalogRepository @Inject constructor(
         try {
             val payload = api.searchProducts(
                 query = normalizedQuery.takeIf { it.isNotBlank() },
-                drinkCategoryId = drinkCategoryId,
+                categoryId = categoryId,
                 sort = "popular"
             )
             val payloadObject = payload.asJsonObjectOrNull()
@@ -191,8 +191,8 @@ class RemoteCatalogRepository @Inject constructor(
                     image = node.getString("image"),
                     image46x75 = node.getString("image_46x75"),
                     image125x200 = node.getString("image_125x200"),
-                    drinkCategoryId = node.getLong("drink_category_id"),
-                    drinkCategoryName = node.getString("drink_category_name"),
+                    categoryId = node.getLong("category_id"),
+                    categoryName = node.getString("category_name"),
                     isSellable = node.getBoolean("is_sellable") ?: true,
                     isStockItem = node.getBoolean("is_stock_item") ?: true,
                     price = price
@@ -279,9 +279,9 @@ class RemoteCatalogRepository @Inject constructor(
         )
     }
 
-    private fun JsonObject.toDrinkCategory(): DrinkCategory? {
+    private fun JsonObject.toCategory(): Category? {
         val id = getLong("id") ?: return null
-        return DrinkCategory(
+        return Category(
             id = id,
             name = getString("name") ?: "Kategorija #$id",
             parentId = getLong("parent_id"),
