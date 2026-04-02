@@ -60,12 +60,6 @@ interface PosApi {
     @GET("/api/pos/layouts/allowed/")
     suspend fun getAllowedLayouts(): AllowedLayoutsDto
 
-    @GET("/api/categories/")
-    suspend fun getCategories(
-        @Query("include_inactive") includeInactive: Int? = null,
-        @Query("level") level: Int? = null
-    ): JsonElement
-
     @GET("/api/pos/categories/display/")
     suspend fun getCategoryDisplay(
         @Query("root_id") rootId: Long
@@ -78,6 +72,12 @@ interface PosApi {
         @Query("limit") limit: Int? = 100,
         @Query("sort") sort: String? = "popular"
     ): JsonElement
+
+    @GET("/api/pos/bootstrap/")
+    suspend fun getCatalogBootstrap(
+        @Query("root_id") rootId: Long? = null,
+        @Query("include_products") includeProducts: Int? = null
+    ): JsonObject
 
     @GET("/api/pos/products/{artiklId}/modifiers/")
     suspend fun getProductModifiers(

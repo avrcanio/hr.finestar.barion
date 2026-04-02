@@ -14,6 +14,7 @@ import pos.finestar.barion.api.model.CheckItemModifierInputDto
 import pos.finestar.barion.data.local.ApiCacheDao
 import pos.finestar.barion.data.local.ApiCacheEntity
 import pos.finestar.barion.domain.model.BundlePricePreview
+import pos.finestar.barion.domain.model.CatalogBootstrap
 import pos.finestar.barion.domain.model.CatalogProduct
 import pos.finestar.barion.domain.model.Category
 import pos.finestar.barion.domain.model.CategoryDisplay
@@ -31,39 +32,36 @@ class RemoteCatalogRepository @Inject constructor(
     private val apiCacheDao: ApiCacheDao,
     private val gson: Gson
 ) : CatalogRepository {
-
     private data class CacheEntry<T>(
         val value: T,
         val savedAtMillis: Long
     )
 
-    private val categoriesCache = ConcurrentHashMap<String, CacheEntry<List<Category>>>()
+    private val bootstrapCache = ConcurrentHashMap<String, CacheEntry<CatalogBootstrap>>()
     private val displayCache = ConcurrentHashMap<Long, CacheEntry<CategoryDisplay>>()
     private val productsCache = ConcurrentHashMap<String, CacheEntry<List<CatalogProduct>>>()
     private val modifiersCache = ConcurrentHashMap<Long, CacheEntry<ProductModifiersConfig>>()
 
     private val cacheTtlMillis = 60_000L
-    private val categoriesTtlMillis = 6 * 60 * 60 * 1000L
     private val productsTtlMillis = 2 * 60 * 1000L
 
-    override suspend fun getCategories(
-        includeInactive: Boolean,
-        level: Int?,
+    override suspend fun getCatalogBootstrap(
+        includeProducts: Boolean,
         forceRefresh: Boolean
-    ): List<Category> {
-        val key = "include_inactive_${if (includeInactive) 1 else 0}_level_${level ?: 0}"
-        val cached = categoriesCache[key]
+    ): CatalogBootstrap {
+        val key = "include_products_${if (includeProducts) 1 else 0}"
+        val cached = bootstrapCache[key]
         if (!forceRefresh && cached != null && isFresh(cached.savedAtMillis)) return cached.value
 
-        val roomCacheKey = "categories:$key"
+        val roomCacheKey = "catalog_bootstrap:$key"
         if (!forceRefresh) {
-            val roomCached = readCacheEntry<List<Category>>(
+            val roomCached = readCacheEntry<CatalogBootstrap>(
                 key = roomCacheKey,
-                ttlMillis = categoriesTtlMillis,
-                type = object : TypeToken<List<Category>>() {}.type
+                ttlMillis = productsTtlMillis,
+                type = CatalogBootstrap::class.java
             )
             if (roomCached != null) {
-                categoriesCache[key] = CacheEntry(
+                bootstrapCache[key] = CacheEntry(
                     value = roomCached,
                     savedAtMillis = System.currentTimeMillis()
                 )
@@ -71,36 +69,38 @@ class RemoteCatalogRepository @Inject constructor(
             }
         }
 
-        try {
-            val payload = api.getCategories(
-                includeInactive = if (includeInactive) 1 else null,
-                level = level
+        return runCatching {
+            val payload = api.getCatalogBootstrap(
+                rootId = null,
+                includeProducts = if (includeProducts) 1 else null
             )
-            val payloadObject = payload.asJsonObjectOrNull()
-            val rawList = when {
-                payload.isJsonArray -> payload.asJsonArray
-                payloadObject != null -> payloadObject.getArray("results")
-                    ?: payloadObject.getArray("categories")
-                    ?: payloadObject.getArray("items")
-                    ?: JsonArray()
-                else -> JsonArray()
-            }
-
-            val fresh = rawList.mapNotNull { it.asJsonObjectOrNull()?.toCategory() }
-                .sortedWith(compareBy<Category> { it.sortOrder }.thenBy { it.name })
-
+            val categories = (payload.getArray("categories") ?: JsonArray())
+                .mapNotNull { it.asJsonObjectOrNull()?.toCategory() }
+            val selectedCategoryId = payload.getLong("selected_category_id")
+                ?.takeIf { selectedId -> categories.any { it.id == selectedId } }
+                ?: categories.firstOrNull()?.id
+            val products = (payload.getArray("products") ?: JsonArray())
+                .mapNotNull { it.asJsonObjectOrNull()?.toCatalogProductOrNull() }
+            CatalogBootstrap(
+                activeMode = payload.getString("active_mode") ?: "unknown",
+                rootId = payload.getLong("root_id") ?: 0L,
+                displayLevel = payload.getInt("display_level") ?: 1,
+                categories = categories,
+                selectedCategoryId = selectedCategoryId,
+                products = products
+            )
+        }.onSuccess { fresh ->
             writeCacheEntry(roomCacheKey, fresh)
-            categoriesCache[key] = CacheEntry(
+            bootstrapCache[key] = CacheEntry(
                 value = fresh,
                 savedAtMillis = System.currentTimeMillis()
             )
-            return fresh
-        } catch (t: Throwable) {
-            return cached?.value ?: readCacheEntry<List<Category>>(
+        }.getOrElse { throwable ->
+            cached?.value ?: readCacheEntry<CatalogBootstrap>(
                 key = roomCacheKey,
                 ttlMillis = Long.MAX_VALUE,
-                type = object : TypeToken<List<Category>>() {}.type
-            ) ?: throw t
+                type = CatalogBootstrap::class.java
+            ) ?: throw throwable
         }
     }
 
@@ -173,30 +173,7 @@ class RemoteCatalogRepository @Inject constructor(
             }
 
             val fresh = rawList.mapNotNull { element ->
-                val node = element.asJsonObjectOrNull() ?: return@mapNotNull null
-                val id = node.getLong("id")
-                    ?: node.getLong("artikl_id")
-                    ?: node.getLong("rm_id")
-                    ?: return@mapNotNull null
-                val name = node.getString("name") ?: node.getString("product_name") ?: "Artikl #$id"
-                val price = node.getDouble("unit_price")
-                    ?: node.getDouble("price")
-                    ?: node.getDouble("price_with_tax")
-                    ?: node.getObject("active_price")?.getDouble("price")
-                    ?: 0.0
-                CatalogProduct(
-                    id = id,
-                    name = name,
-                    code = node.getString("code"),
-                    image = node.getString("image"),
-                    image46x75 = node.getString("image_46x75"),
-                    image125x200 = node.getString("image_125x200"),
-                    categoryId = node.getLong("category_id"),
-                    categoryName = node.getString("category_name"),
-                    isSellable = node.getBoolean("is_sellable") ?: true,
-                    isStockItem = node.getBoolean("is_stock_item") ?: true,
-                    price = price
-                )
+                element.asJsonObjectOrNull()?.toCatalogProductOrNull()
             }
 
             writeCacheEntry(roomCacheKey, fresh)
@@ -286,6 +263,32 @@ class RemoteCatalogRepository @Inject constructor(
             name = getString("name") ?: "Kategorija #$id",
             parentId = getLong("parent_id"),
             sortOrder = getInt("sort_order") ?: 0
+        )
+    }
+
+    private fun JsonObject.toCatalogProductOrNull(): CatalogProduct? {
+        val id = getLong("id")
+            ?: getLong("artikl_id")
+            ?: getLong("rm_id")
+            ?: return null
+        val name = getString("name") ?: getString("product_name") ?: "Artikl #$id"
+        val price = getDouble("unit_price")
+            ?: getDouble("price")
+            ?: getDouble("price_with_tax")
+            ?: getObject("active_price")?.getDouble("price")
+            ?: 0.0
+        return CatalogProduct(
+            id = id,
+            name = name,
+            code = getString("code"),
+            image = getString("image"),
+            image46x75 = getString("image_46x75"),
+            image125x200 = getString("image_125x200"),
+            categoryId = getLong("category_id"),
+            categoryName = getString("category_name"),
+            isSellable = getBoolean("is_sellable") ?: true,
+            isStockItem = getBoolean("is_stock_item") ?: true,
+            price = price
         )
     }
 

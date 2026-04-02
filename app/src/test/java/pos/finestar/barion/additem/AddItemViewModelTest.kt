@@ -5,10 +5,13 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import pos.finestar.barion.domain.model.BundlePricePreview
+import pos.finestar.barion.domain.model.CatalogBootstrap
 import pos.finestar.barion.domain.model.CatalogProduct
 import pos.finestar.barion.domain.model.CheckSession
 import pos.finestar.barion.domain.model.Category
@@ -17,7 +20,7 @@ import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.repo.CatalogRepository
 import pos.finestar.barion.domain.repo.CheckRepository
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
-import pos.finestar.barion.domain.usecase.GetCategoriesUseCase
+import pos.finestar.barion.domain.usecase.GetCatalogBootstrapUseCase
 import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
@@ -40,8 +43,8 @@ class AddItemViewModelTest {
         advanceTimeBy(300)
         advanceUntilIdle()
 
-        assertEquals(10L, vm.uiState.value.selectedCategoryId)
-        assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
+        assertEquals(20L, vm.uiState.value.selectedCategoryId)
+        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
@@ -53,8 +56,8 @@ class AddItemViewModelTest {
         advanceTimeBy(300)
         advanceUntilIdle()
 
-        assertEquals(null, vm.uiState.value.selectedCategoryId)
-        assertEquals(listOf("Kava espresso", "Latte", "Pivo", "Lager"), vm.uiState.value.products.map { it.name })
+        assertEquals(10L, vm.uiState.value.selectedCategoryId)
+        assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
@@ -77,19 +80,83 @@ class AddItemViewModelTest {
     }
 
     @Test
-    fun `query matching category name returns union of name and category results`() = runTest {
+    fun `global query filters by text across all categories`() = runTest {
         val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onCategorySelected(20L)
+        advanceTimeBy(300)
         advanceUntilIdle()
 
         vm.onQueryChanged("kav")
         advanceTimeBy(300)
         advanceUntilIdle()
 
+        assertEquals(true, vm.uiState.value.isSearchActive)
+        assertEquals(listOf("Kava espresso"), vm.uiState.value.products.map { it.name })
+    }
+
+    @Test
+    fun `startup uses bootstrap selected category and products`() = runTest {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isProductsLoading)
+        assertEquals(10L, vm.uiState.value.selectedCategoryId)
         assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
-    fun `query matching selected category expands only selected category`() = runTest {
+    fun `startup keeps products loading true until bootstrap resolves`() = runTest {
+        val catalogRepo = FakeCatalogRepository(bootstrapDelayMs = 1_000L)
+        val vm = createViewModel(catalogRepo)
+        runCurrent()
+
+        assertEquals(true, vm.uiState.value.isLoading)
+        assertEquals(true, vm.uiState.value.isProductsLoading)
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isLoading)
+        assertEquals(false, vm.uiState.value.isProductsLoading)
+    }
+
+    @Test
+    fun `bootstrap failure shows startup error and does not use legacy category bootstrap`() = runTest {
+        val catalogRepo = FakeCatalogRepository(
+            failBootstrap = true
+        )
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.selectedCategoryId)
+        assertEquals(emptyList<String>(), vm.uiState.value.products.map { it.name })
+        assertTrue(vm.uiState.value.error?.contains("bootstrap failed") == true)
+    }
+
+    @Test
+    fun `empty bootstrap keeps screen stable with empty categories and products`() = runTest {
+        val catalogRepo = FakeCatalogRepository(
+            bootstrap = CatalogBootstrap(
+                activeMode = "day",
+                rootId = 38L,
+                displayLevel = 2,
+                categories = emptyList(),
+                selectedCategoryId = null,
+                products = emptyList()
+            )
+        )
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.selectedCategoryId)
+        assertEquals(emptyList<String>(), vm.uiState.value.products.map { it.name })
+        assertEquals(emptyList<Long?>(), vm.uiState.value.categories.map { it.id })
+    }
+
+    @Test
+    fun `search ignores selected category and filters globally by query`() = runTest {
         val vm = createViewModel()
         advanceUntilIdle()
 
@@ -101,34 +168,109 @@ class AddItemViewModelTest {
         advanceTimeBy(300)
         advanceUntilIdle()
 
-        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
+        assertEquals(listOf("Pivo"), vm.uiState.value.products.map { it.name })
     }
 
     @Test
-    fun `union removes duplicates when product matches both name and category expansion`() = runTest {
-        val vm = createViewModel()
-        advanceUntilIdle()
-
-        vm.onQueryChanged("kav")
-        advanceTimeBy(300)
-        advanceUntilIdle()
-
-        assertEquals(listOf(1L, 3L), vm.uiState.value.products.map { it.id })
-    }
-
-    @Test
-    fun `blank query does not trigger category expansion calls`() = runTest {
+    fun `search uses global category null filter`() = runTest {
         val catalogRepo = FakeCatalogRepository()
         val vm = createViewModel(catalogRepo)
         advanceUntilIdle()
         catalogRepo.clearSearchCalls()
 
+        vm.onQueryChanged("kav")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        assertEquals(listOf(null, null), catalogRepo.searchCalls.map { it.categoryId })
+    }
+
+    @Test
+    fun `search shows products loading spinner until results arrive`() = runTest {
+        val catalogRepo = FakeCatalogRepository(searchDelayMs = 1_000L)
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+
+        vm.onQueryChanged("kav")
+        advanceTimeBy(300)
+        runCurrent()
+        assertEquals(true, vm.uiState.value.isProductsLoading)
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.isProductsLoading)
+        assertEquals(listOf("Kava espresso"), vm.uiState.value.products.map { it.name })
+    }
+
+    @Test
+    fun `category change clears stale products and shows loading until new products arrive`() = runTest {
+        val catalogRepo = FakeCatalogRepository(searchDelayMs = 1_000L)
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+
+        assertEquals(listOf("Kava espresso", "Latte"), vm.uiState.value.products.map { it.name })
+
+        vm.onCategorySelected(20L)
+        runCurrent()
+        assertEquals(true, vm.uiState.value.isProductsLoading)
+        assertEquals(emptyList<String>(), vm.uiState.value.products.map { it.name })
+
+        advanceTimeBy(300)
+        runCurrent()
+        assertEquals(true, vm.uiState.value.isProductsLoading)
+        assertEquals(emptyList<String>(), vm.uiState.value.products.map { it.name })
+
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.isProductsLoading)
+        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
+    }
+
+    @Test
+    fun `category change failure stops loading and exposes error`() = runTest {
+        val catalogRepo = FakeCatalogRepository(
+            searchDelayMs = 1_000L,
+            failSearchCategoryId = 20L
+        )
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+
+        vm.onCategorySelected(20L)
+        runCurrent()
+        assertEquals(true, vm.uiState.value.isProductsLoading)
+        assertEquals(emptyList<String>(), vm.uiState.value.products.map { it.name })
+
+        advanceTimeBy(300)
+        advanceTimeBy(1_000)
+        advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isProductsLoading)
+        assertTrue(vm.uiState.value.error?.contains("search failed") == true)
+    }
+
+    @Test
+    fun `clear query restores selected category filtering`() = runTest {
+        val catalogRepo = FakeCatalogRepository()
+        val vm = createViewModel(catalogRepo)
+        advanceUntilIdle()
+        catalogRepo.clearSearchCalls()
+
+        vm.onQueryChanged("kav")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
         vm.onCategorySelected(20L)
         advanceTimeBy(300)
         advanceUntilIdle()
 
-        val nullQueryCalls = catalogRepo.searchCalls.count { it.query == null }
-        assertEquals(0, nullQueryCalls)
+        vm.onQueryChanged("")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isSearchActive)
+        assertEquals(20L, vm.uiState.value.selectedCategoryId)
+        assertEquals(listOf("Pivo", "Lager"), vm.uiState.value.products.map { it.name })
+        assertEquals(20L, catalogRepo.searchCalls.last().categoryId)
     }
 
     private fun createViewModel(catalogRepo: FakeCatalogRepository = FakeCatalogRepository()): AddItemViewModel {
@@ -140,7 +282,7 @@ class AddItemViewModelTest {
                     NavRoutes.ARG_TABLE_NAME to "T1"
                 )
             ),
-            getCategoriesUseCase = GetCategoriesUseCase(catalogRepo),
+            getCatalogBootstrapUseCase = GetCatalogBootstrapUseCase(catalogRepo),
             searchProductsUseCase = SearchProductsUseCase(catalogRepo),
             getProductModifiersUseCase = GetProductModifiersUseCase(catalogRepo),
             previewBundlePriceUseCase = PreviewBundlePriceUseCase(catalogRepo),
@@ -149,7 +291,13 @@ class AddItemViewModelTest {
         )
     }
 
-    private class FakeCatalogRepository : CatalogRepository {
+    private class FakeCatalogRepository(
+        private val failBootstrap: Boolean = false,
+        private val bootstrap: CatalogBootstrap? = null,
+        private val bootstrapDelayMs: Long = 0L,
+        private val searchDelayMs: Long = 0L,
+        private val failSearchCategoryId: Long? = null
+    ) : CatalogRepository {
         data class SearchCall(
             val query: String?,
             val categoryId: Long?,
@@ -169,11 +317,23 @@ class AddItemViewModelTest {
             CatalogProduct(id = 4L, name = "Lager", categoryId = 20L, price = 3.6)
         )
 
-        override suspend fun getCategories(
-            includeInactive: Boolean,
-            level: Int?,
+        override suspend fun getCatalogBootstrap(
+            includeProducts: Boolean,
             forceRefresh: Boolean
-        ): List<Category> = categories
+        ): CatalogBootstrap {
+            if (failBootstrap) {
+                error("bootstrap failed")
+            }
+            if (bootstrapDelayMs > 0L) kotlinx.coroutines.delay(bootstrapDelayMs)
+            return bootstrap ?: CatalogBootstrap(
+                activeMode = "day",
+                rootId = 38L,
+                displayLevel = 2,
+                categories = categories,
+                selectedCategoryId = 10L,
+                products = products.filter { it.categoryId == 10L }
+            )
+        }
 
         override suspend fun getCategoryDisplay(rootId: Long) = error("unused")
 
@@ -182,6 +342,10 @@ class AddItemViewModelTest {
             categoryId: Long?,
             forceRefresh: Boolean
         ): List<CatalogProduct> {
+            if (searchDelayMs > 0L) kotlinx.coroutines.delay(searchDelayMs)
+            if (failSearchCategoryId != null && categoryId == failSearchCategoryId && query.isNullOrBlank()) {
+                error("search failed")
+            }
             searchCalls += SearchCall(
                 query = query,
                 categoryId = categoryId,

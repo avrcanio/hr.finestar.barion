@@ -78,11 +78,12 @@ Pregledano je svih 48 issue-a.
 
 ### Katalog
 
-- `GET /api/categories/?level=2`
+- `GET /api/pos/bootstrap/?include_products=1`
 - `GET /api/pos/categories/display/`
 - `GET /api/pos/products/search/?category_id=...&q=...&limit=100&sort=popular`
 - `GET /api/pos/products/{artikl_id}/modifiers/`
 - `POST /api/pos/products/{artikl_id}/bundle-price/`
+- granularni endpointi i dalje ostaju za daljnju navigaciju i pretragu
 - fallback/legacy podrška: `GET /api/artikli/`
 
 ### Check + items
@@ -120,7 +121,7 @@ Implementiran je Room cache + SWR (stale-while-revalidate) za ključne endpointe
 
 - `/api/pos/active-layout/`
 - `/api/pos/layouts/allowed/`
-- `/api/categories/`
+- `/api/pos/bootstrap/`
 - `/api/pos/products/search/`
 - `/api/pos/checks/{id}/items/`
 
@@ -177,7 +178,7 @@ Napomena:
 - `app/src/main/java/pos/finestar/barion/floorplan` - floor rendering, layout selector
 - `app/src/main/java/pos/finestar/barion/check` - check prikaz, round totals, storno/gratis/otpis, pay/free
 - `app/src/main/java/pos/finestar/barion/additem` - pretraga artikala, kategorije, košarica, slanje runde
-- `app/src/main/java/pos/finestar/barion/data/repo` - API + mapiranja + cache fallback
+- `app/src/main/java/pos/finestar/barion/data/repo` - API + mapiranja + cache sloj
 - `app/src/main/java/pos/finestar/barion/data/local` - Room cache + cleanup worker
 - `app/src/main/java/pos/finestar/barion/domain` - modeli, repo ugovori, use-casevi
 - `docs/qa` - QA checklist i contract test napomene

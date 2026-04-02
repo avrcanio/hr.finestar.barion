@@ -1,20 +1,18 @@
 package pos.finestar.barion.domain.usecase
 
 import javax.inject.Inject
-import pos.finestar.barion.domain.model.Category
+import pos.finestar.barion.domain.model.CatalogBootstrap
 import pos.finestar.barion.domain.repo.CatalogRepository
 
-class GetCategoriesUseCase @Inject constructor(
+class GetCatalogBootstrapUseCase @Inject constructor(
     private val repository: CatalogRepository
 ) {
     suspend operator fun invoke(
-        includeInactive: Boolean = false,
-        level: Int? = null,
+        includeProducts: Boolean = true,
         forceRefresh: Boolean = false
-    ): List<Category> {
-        return repository.getCategories(
-            includeInactive = includeInactive,
-            level = level,
+    ): CatalogBootstrap {
+        return repository.getCatalogBootstrap(
+            includeProducts = includeProducts,
             forceRefresh = forceRefresh
         )
     }

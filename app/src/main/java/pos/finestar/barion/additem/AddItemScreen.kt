@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -183,54 +184,83 @@ fun AddItemScreen(
 
                         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                             val isWide = maxWidth >= 700.dp
+                            val searchActive = state.isSearchActive
                             if (isWide) {
                                 Row(
                                     modifier = Modifier.fillMaxSize(),
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    CategoriesColumn(
-                                        categories = state.categories,
-                                        selectedId = state.selectedCategoryId,
-                                        onCategorySelected = onCategorySelected,
+                                    if (!searchActive) {
+                                        CategoriesColumn(
+                                            categories = state.categories,
+                                            selectedId = state.selectedCategoryId,
+                                            onCategorySelected = onCategorySelected,
+                                            modifier = Modifier
+                                                .weight(0.34f)
+                                                .fillMaxSize()
+                                        )
+                                    }
+                                    Box(
                                         modifier = Modifier
-                                            .weight(0.34f)
+                                            .weight(if (searchActive) 1f else 0.66f)
                                             .fillMaxSize()
-                                    )
-                                    ProductsGrid(
-                                        products = state.products,
-                                        cartQtyByProductId = state.cartQtyByProductId,
-                                        hasModifiersByProductId = state.hasModifiersByProductId,
-                                        cartConfiguredByProductId = state.cartConfiguredByProductId,
-                                        onSwipeLeft = onSwipeLeft,
-                                        onSwipeRight = onSwipeRight,
-                                        onProductTapped = onProductTapped,
-                                        onProductLongPressed = onProductLongPressed,
-                                        modifier = Modifier
-                                            .weight(0.66f)
-                                            .fillMaxSize()
-                                    )
+                                    ) {
+                                        if (state.isProductsLoading) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator()
+                                            }
+                                        } else {
+                                            ProductsGrid(
+                                                products = state.products,
+                                                cartQtyByProductId = state.cartQtyByProductId,
+                                                hasModifiersByProductId = state.hasModifiersByProductId,
+                                                cartConfiguredByProductId = state.cartConfiguredByProductId,
+                                                onSwipeLeft = if (searchActive) ({}) else onSwipeLeft,
+                                                onSwipeRight = if (searchActive) ({}) else onSwipeRight,
+                                                onProductTapped = onProductTapped,
+                                                onProductLongPressed = onProductLongPressed,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    }
                                 }
                             } else {
                                 Column(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    CategoriesRow(
-                                        categories = state.categories,
-                                        selectedId = state.selectedCategoryId,
-                                        onCategorySelected = onCategorySelected
-                                    )
-                                    ProductsGrid(
-                                        products = state.products,
-                                        cartQtyByProductId = state.cartQtyByProductId,
-                                        hasModifiersByProductId = state.hasModifiersByProductId,
-                                        cartConfiguredByProductId = state.cartConfiguredByProductId,
-                                        onSwipeLeft = onSwipeLeft,
-                                        onSwipeRight = onSwipeRight,
-                                        onProductTapped = onProductTapped,
-                                        onProductLongPressed = onProductLongPressed,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    if (!searchActive) {
+                                        CategoriesRow(
+                                            categories = state.categories,
+                                            selectedId = state.selectedCategoryId,
+                                            onCategorySelected = onCategorySelected
+                                        )
+                                    }
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        if (state.isProductsLoading) {
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator()
+                                            }
+                                        } else {
+                                            ProductsGrid(
+                                                products = state.products,
+                                                cartQtyByProductId = state.cartQtyByProductId,
+                                                hasModifiersByProductId = state.hasModifiersByProductId,
+                                                cartConfiguredByProductId = state.cartConfiguredByProductId,
+                                                onSwipeLeft = if (searchActive) ({}) else onSwipeLeft,
+                                                onSwipeRight = if (searchActive) ({}) else onSwipeRight,
+                                                onProductTapped = onProductTapped,
+                                                onProductLongPressed = onProductLongPressed,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -319,9 +349,17 @@ private fun CategoriesRow(
     val selectedIndex = categories.indexOfFirst { it.id == selectedId }
     LaunchedEffect(selectedIndex, categories.size) {
         if (selectedIndex < 0) return@LaunchedEffect
-        val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == selectedIndex }
-        if (!isVisible) {
-            listState.animateScrollToItem(selectedIndex)
+        // First ensure selected item is laid out, then center it if possible.
+        listState.scrollToItem(selectedIndex)
+        val layoutInfo = listState.layoutInfo
+        val selectedItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == selectedIndex }
+            ?: return@LaunchedEffect
+        val viewportCenter = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+        val selectedCenter = selectedItem.offset + selectedItem.size / 2
+        val delta = (selectedCenter - viewportCenter).toFloat()
+        if (abs(delta) > 1f) {
+            // Scroll state naturally clamps at edges, giving left/right stick behavior.
+            listState.animateScrollBy(delta)
         }
     }
 

@@ -24,7 +24,7 @@ import pos.finestar.barion.domain.model.ProductModifiersConfig
 import pos.finestar.barion.domain.model.SelectedModifier
 import pos.finestar.barion.domain.model.SelectionMode
 import pos.finestar.barion.domain.usecase.AddItemToCheckUseCase
-import pos.finestar.barion.domain.usecase.GetCategoriesUseCase
+import pos.finestar.barion.domain.usecase.GetCatalogBootstrapUseCase
 import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
@@ -34,14 +34,13 @@ import pos.finestar.barion.ui.navigation.NavRoutes
 @HiltViewModel
 class AddItemViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    private val getCategoriesUseCase: GetCategoriesUseCase,
+    private val getCatalogBootstrapUseCase: GetCatalogBootstrapUseCase,
     private val searchProductsUseCase: SearchProductsUseCase,
     private val getProductModifiersUseCase: GetProductModifiersUseCase,
     private val previewBundlePriceUseCase: PreviewBundlePriceUseCase,
     private val addItemToCheckUseCase: AddItemToCheckUseCase,
     private val sendToBarUseCase: SendToBarUseCase
 ) : ViewModel() {
-
     data class CategoryUi(
         val id: Long?,
         val label: String
@@ -95,6 +94,7 @@ class AddItemViewModel @Inject constructor(
         val checkId: Long = 0L,
         val tableName: String = "",
         val isLoading: Boolean = true,
+        val isProductsLoading: Boolean = true,
         val isSubmitting: Boolean = false,
         val categories: List<CategoryUi> = emptyList(),
         val selectedCategoryId: Long? = null,
@@ -114,6 +114,7 @@ class AddItemViewModel @Inject constructor(
         val message: String? = null,
         val navigateToCheckRequestId: Long = 0L
     ) {
+        val isSearchActive: Boolean get() = query.trim().isNotBlank()
         val cartItemsCount: Int get() = cart.sumOf { it.qty }
         val cartSubtotal: Double get() = cart.sumOf { it.lineTotal }
         val cartQtyByProductId: Map<Long, Int>
@@ -143,12 +144,30 @@ class AddItemViewModel @Inject constructor(
     }
 
     fun onQueryChanged(newQuery: String) {
-        _uiState.update { it.copy(query = newQuery) }
+        _uiState.update { state ->
+            val wasSearchActive = state.isSearchActive
+            val isSearchActive = newQuery.trim().isNotBlank()
+            val switchingToCategoryMode = wasSearchActive && !isSearchActive
+            state.copy(
+                query = newQuery,
+                isProductsLoading = if (switchingToCategoryMode) true else state.isProductsLoading,
+                products = if (switchingToCategoryMode) emptyList() else state.products,
+                error = if (switchingToCategoryMode) null else state.error
+            )
+        }
         searchProductsDebounced()
     }
 
     fun onCategorySelected(categoryId: Long?) {
-        _uiState.update { it.copy(selectedCategoryId = categoryId) }
+        _uiState.update { state ->
+            val categoryMode = !state.isSearchActive
+            state.copy(
+                selectedCategoryId = categoryId,
+                isProductsLoading = if (categoryMode) true else state.isProductsLoading,
+                products = if (categoryMode) emptyList() else state.products,
+                error = if (categoryMode) null else state.error
+            )
+        }
         searchProductsDebounced()
     }
 
@@ -585,24 +604,24 @@ class AddItemViewModel @Inject constructor(
 
     private fun loadInitial() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+            _uiState.update { it.copy(isLoading = true, isProductsLoading = true, error = null) }
             runCatching {
-                val categories = getCategoriesUseCase(level = 2, forceRefresh = false)
-                    .sortedBy { it.labelForSort() }
-                    .map { CategoryUi(id = it.id, label = it.name) }
-                val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + categories
-                val initialCategoryId: Long? = null
-                val products = searchProductsUseCase(
-                    query = null,
-                    categoryId = initialCategoryId,
+                val bootstrap = getCatalogBootstrapUseCase(
+                    includeProducts = true,
                     forceRefresh = false
-                ).map { it.toUi() }
-
-                Triple(categoriesWithAll, initialCategoryId, products)
+                )
+                val categories = bootstrap.categories
+                    .map { CategoryUi(id = it.id, label = it.name) }
+                Triple(
+                    categories,
+                    bootstrap.selectedCategoryId,
+                    bootstrap.products.map { it.toUi() }
+                )
             }.onSuccess { (categories, selectedCategoryId, products) ->
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        isProductsLoading = false,
                         categories = categories,
                         selectedCategoryId = selectedCategoryId,
                         products = products,
@@ -618,6 +637,7 @@ class AddItemViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        isProductsLoading = false,
                         error = throwable.message ?: "Ne mogu učitati kategorije i artikle."
                     )
                 }
@@ -632,88 +652,101 @@ class AddItemViewModel @Inject constructor(
             val state = _uiState.value
             val querySnapshot = state.query
             val categorySnapshot = state.selectedCategoryId
+            val searchActiveSnapshot = querySnapshot.trim().isNotBlank()
+            _uiState.update { latest ->
+                if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
+                    latest.copy(
+                        isProductsLoading = true,
+                        products = if (searchActiveSnapshot) latest.products else emptyList(),
+                        error = null
+                    )
+                } else {
+                    latest
+                }
+            }
             runCatching {
-                loadProductsWithCategoryNameExpansion(
+                loadProductsForCurrentMode(
                     query = querySnapshot,
                     selectedCategoryId = categorySnapshot,
-                    forceRefresh = false,
-                    categories = state.categories
+                    forceRefresh = false
                 )
             }.onSuccess { products ->
                 val latest = _uiState.value
-                if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
-                    _uiState.update { it.copy(products = products, error = null) }
+                if (
+                    latest.query == querySnapshot &&
+                    latest.selectedCategoryId == categorySnapshot &&
+                    latest.isSearchActive == searchActiveSnapshot
+                ) {
+                    _uiState.update {
+                        it.copy(
+                            products = products,
+                            error = null,
+                            isProductsLoading = false
+                        )
+                    }
                     scheduleModifierHints(products)
                 }
             }.onFailure { throwable ->
                 _uiState.update {
-                    it.copy(error = throwable.message ?: "Ne mogu učitati artikle.")
+                    it.copy(
+                        error = throwable.message ?: "Ne mogu učitati artikle.",
+                        isProductsLoading = false
+                    )
                 }
             }
 
             runCatching {
-                loadProductsWithCategoryNameExpansion(
+                loadProductsForCurrentMode(
                     query = querySnapshot,
                     selectedCategoryId = categorySnapshot,
-                    forceRefresh = true,
-                    categories = state.categories
+                    forceRefresh = true
                 )
             }.onSuccess { freshProducts ->
                 val latest = _uiState.value
-                if (latest.query == querySnapshot && latest.selectedCategoryId == categorySnapshot) {
-                    _uiState.update { it.copy(products = freshProducts, error = null) }
+                if (
+                    latest.query == querySnapshot &&
+                    latest.selectedCategoryId == categorySnapshot &&
+                    latest.isSearchActive == searchActiveSnapshot
+                ) {
+                    _uiState.update {
+                        it.copy(
+                            products = freshProducts,
+                            error = null,
+                            isProductsLoading = false
+                        )
+                    }
                     scheduleModifierHints(freshProducts)
                 }
             }
         }
     }
 
-    private suspend fun loadProductsWithCategoryNameExpansion(
+    private suspend fun loadProductsForCurrentMode(
         query: String,
         selectedCategoryId: Long?,
-        forceRefresh: Boolean,
-        categories: List<CategoryUi>
+        forceRefresh: Boolean
     ): List<ProductUi> {
         val normalizedQuery = query.trim()
-        val baseProducts = searchProductsUseCase(
-            query = normalizedQuery,
-            categoryId = selectedCategoryId,
-            forceRefresh = forceRefresh
-        )
-
-        if (normalizedQuery.isBlank()) {
-            return baseProducts.map { it.toUi() }
-        }
-
-        val matchedCategoryIds = categories
-            .asSequence()
-            .filter { it.id != null }
-            .filter { it.label.contains(normalizedQuery, ignoreCase = true) }
-            .mapNotNull { it.id }
-            .toList()
-        val categoryIdsToExpand = if (selectedCategoryId != null) {
-            matchedCategoryIds.filter { it == selectedCategoryId }
-        } else {
-            matchedCategoryIds
-        }
-        if (categoryIdsToExpand.isEmpty()) {
-            return baseProducts.map { it.toUi() }
-        }
-
-        val categoryProducts = categoryIdsToExpand.flatMap { categoryId ->
+        val products = if (normalizedQuery.isBlank()) {
             searchProductsUseCase(
                 query = null,
-                categoryId = categoryId,
+                categoryId = selectedCategoryId,
+                forceRefresh = forceRefresh
+            )
+        } else {
+            searchProductsUseCase(
+                query = normalizedQuery,
+                categoryId = null,
                 forceRefresh = forceRefresh
             )
         }
-        val mergedProducts = (baseProducts + categoryProducts).distinctBy { it.id }
-        return mergedProducts.map { it.toUi() }
+        return products.map { it.toUi() }
     }
 
     private fun shiftCategoryBy(delta: Int) {
         if (delta == 0) return
         val state = _uiState.value
+        if (state.isSearchActive) return
         val categories = state.categories
         if (categories.isEmpty()) return
 
@@ -722,30 +755,57 @@ class AddItemViewModel @Inject constructor(
         val targetIndex = (currentIndex + delta).coerceIn(0, categories.lastIndex)
         if (targetIndex == currentIndex) return
 
-        _uiState.update { it.copy(selectedCategoryId = categories[targetIndex].id) }
+        _uiState.update {
+            it.copy(
+                selectedCategoryId = categories[targetIndex].id,
+                isProductsLoading = true,
+                products = emptyList(),
+                error = null
+            )
+        }
         searchProductsDebounced()
     }
 
     private fun refreshCatalogInBackground(query: String, selectedCategoryId: Long?) {
         viewModelScope.launch {
             runCatching {
-                val freshCategories = getCategoriesUseCase(level = 2, forceRefresh = true)
-                    .sortedBy { it.labelForSort() }
-                    .map { CategoryUi(id = it.id, label = it.name) }
-                val categoriesWithAll = listOf(CategoryUi(id = null, label = "Sve")) + freshCategories
-                val freshProducts = searchProductsUseCase(
-                    query = query.takeIf { it.isNotBlank() },
-                    categoryId = selectedCategoryId,
+                val bootstrap = getCatalogBootstrapUseCase(
+                    includeProducts = query.isBlank(),
                     forceRefresh = true
-                ).map { it.toUi() }
-                categoriesWithAll to freshProducts
-            }.onSuccess { (categories, products) ->
+                )
+                val freshCategories = bootstrap.categories
+                    .map { CategoryUi(id = it.id, label = it.name) }
+                val resolvedSelectedCategoryId = selectedCategoryId
+                    ?: bootstrap.selectedCategoryId
+                    ?: freshCategories.firstOrNull()?.id
+                val freshProducts = if (query.isBlank()) {
+                    val bootstrapProducts = bootstrap.products
+                    if (bootstrapProducts.isNotEmpty() || resolvedSelectedCategoryId == null) {
+                        bootstrapProducts.map { it.toUi() }
+                    } else {
+                        searchProductsUseCase(
+                            query = null,
+                            categoryId = resolvedSelectedCategoryId,
+                            forceRefresh = true
+                        ).map { it.toUi() }
+                    }
+                } else {
+                    loadProductsForCurrentMode(
+                        query = query,
+                        selectedCategoryId = resolvedSelectedCategoryId,
+                        forceRefresh = true
+                    )
+                }
+                Triple(freshCategories, resolvedSelectedCategoryId, freshProducts)
+            }.onSuccess { (categories, resolvedSelectedCategoryId, products) ->
                 val latest = _uiState.value
                 if (latest.query == query && latest.selectedCategoryId == selectedCategoryId) {
                     _uiState.update {
                         it.copy(
                             categories = categories,
+                            selectedCategoryId = resolvedSelectedCategoryId,
                             products = products,
+                            isProductsLoading = false,
                             error = null
                         )
                     }
@@ -795,7 +855,4 @@ class AddItemViewModel @Inject constructor(
         return "$base/$path"
     }
 
-    private fun pos.finestar.barion.domain.model.Category.labelForSort(): String {
-        return "${sortOrder.toString().padStart(6, '0')}_${name.lowercase()}"
-    }
 }

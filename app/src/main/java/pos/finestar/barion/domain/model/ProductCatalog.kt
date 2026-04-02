@@ -13,6 +13,15 @@ data class CategoryDisplay(
     val categories: List<Category> = emptyList()
 )
 
+data class CatalogBootstrap(
+    val activeMode: String = "unknown",
+    val rootId: Long = 0L,
+    val displayLevel: Int = 1,
+    val categories: List<Category> = emptyList(),
+    val selectedCategoryId: Long? = null,
+    val products: List<CatalogProduct> = emptyList()
+)
+
 data class CatalogProduct(
     val id: Long,
     val name: String,
