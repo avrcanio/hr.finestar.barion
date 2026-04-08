@@ -10,6 +10,8 @@ import pos.finestar.barion.api.model.CheckItemActionRequestDto
 import pos.finestar.barion.api.model.CreateCheckRequestDto
 import pos.finestar.barion.api.model.CreateCheckResponseDto
 import pos.finestar.barion.api.model.BundlePriceRequestDto
+import pos.finestar.barion.api.model.CatalogBootstrapDto
+import pos.finestar.barion.api.model.CatalogChangesResponseDto
 import pos.finestar.barion.api.model.IssueReceiptRequestDto
 import pos.finestar.barion.api.model.MeResponseDto
 import pos.finestar.barion.api.model.PinLoginRequestDto
@@ -77,7 +79,14 @@ interface PosApi {
     suspend fun getCatalogBootstrap(
         @Query("root_id") rootId: Long? = null,
         @Query("include_products") includeProducts: Int? = null
-    ): JsonObject
+    ): CatalogBootstrapDto
+
+    @GET("/api/pos/catalog/changes/")
+    suspend fun getCatalogChanges(
+        @Query("afterVersion") afterVersion: Long,
+        @Query("limit") limit: Int,
+        @Query("targetVersion") targetVersion: Long? = null
+    ): CatalogChangesResponseDto
 
     @GET("/api/pos/products/{artiklId}/modifiers/")
     suspend fun getProductModifiers(

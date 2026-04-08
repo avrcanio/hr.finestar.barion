@@ -9,10 +9,12 @@ class GetProductModifiersUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         productId: Long,
+        expectedModifierVersion: Long? = null,
         forceRefresh: Boolean = false
     ): ProductModifiersConfig {
         return repository.getProductModifiers(
             productId = productId,
+            expectedModifierVersion = expectedModifierVersion,
             forceRefresh = forceRefresh
         )
     }

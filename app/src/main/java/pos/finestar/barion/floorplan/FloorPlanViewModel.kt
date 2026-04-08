@@ -1,5 +1,6 @@
 package pos.finestar.barion.floorplan
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +23,8 @@ import pos.finestar.barion.domain.usecase.GetAllowedLayoutsUseCase
 import pos.finestar.barion.domain.usecase.GetFloorTablesUseCase
 import pos.finestar.barion.domain.usecase.GetOpenCheckForTableUseCase
 import pos.finestar.barion.domain.usecase.GetRuntimeModeUseCase
+import pos.finestar.barion.domain.usecase.SyncCatalogUseCase
+import pos.finestar.barion.sync.CatalogPresentationEventBus
 import retrofit2.HttpException
 
 @HiltViewModel
@@ -31,7 +34,9 @@ class FloorPlanViewModel @Inject constructor(
     private val createCheckForTable: CreateCheckForTableUseCase,
     private val getOpenCheckForTable: GetOpenCheckForTableUseCase,
     private val getRuntimeMode: GetRuntimeModeUseCase,
-    private val authRepository: AuthRepository
+    private val syncCatalogUseCase: SyncCatalogUseCase,
+    private val authRepository: AuthRepository,
+    private val catalogPresentationEventBus: CatalogPresentationEventBus
 ) : ViewModel() {
 
     data class UiState(
@@ -54,16 +59,20 @@ class FloorPlanViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+    private var lastCatalogSyncTriggerAtMs: Long = 0L
 
     private val _events = MutableSharedFlow<Event>()
     val events: SharedFlow<Event> = _events.asSharedFlow()
 
     init {
+        observePresentationEvents()
+        triggerCatalogSync(source = "floorplan_init")
         loadUserProfile()
         loadInitial(forceLoading = true)
     }
 
     fun onResume() {
+        triggerCatalogSync(source = "floorplan_resume")
         loadInitial(forceLoading = false)
     }
 
@@ -126,6 +135,28 @@ class FloorPlanViewModel @Inject constructor(
     private fun loadInitial(forceLoading: Boolean) {
         loadRuntimeMode(forceRefresh = true)
         loadTables(forceLoading = forceLoading, layoutId = _uiState.value.selectedLayoutId)
+    }
+
+    private fun triggerCatalogSync(source: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastCatalogSyncTriggerAtMs < CATALOG_SYNC_DEBOUNCE_MS) {
+            logDebug("triggerCatalogSync skipped source=$source reason=debounced deltaMs=${now - lastCatalogSyncTriggerAtMs}")
+            return
+        }
+        lastCatalogSyncTriggerAtMs = now
+        viewModelScope.launch {
+            logDebug("triggerCatalogSync source=$source")
+            runCatching { syncCatalogUseCase(forceBootstrap = false) }
+                .onFailure { logWarn("triggerCatalogSync failed source=$source msg=${it.message}", it) }
+        }
+    }
+
+    private fun logDebug(message: String) {
+        runCatching { Log.d(TAG, message) }
+    }
+
+    private fun logWarn(message: String, throwable: Throwable? = null) {
+        runCatching { Log.w(TAG, message, throwable) }
     }
 
     private fun loadTables(forceLoading: Boolean, layoutId: Long?) {
@@ -208,5 +239,26 @@ class FloorPlanViewModel @Inject constructor(
                     _uiState.update { it.copy(isRuntimeModeRefreshing = false) }
                 }
         }
+    }
+
+    private fun observePresentationEvents() {
+        viewModelScope.launch {
+            catalogPresentationEventBus.events.collect { event ->
+                when (event) {
+                    is CatalogPresentationEventBus.Event.RuntimeModeChanged -> {
+                        val mode = RuntimeMode.fromRaw(event.activeModeRaw)
+                        if (_uiState.value.runtimeMode != mode) {
+                            logDebug("runtimeModeChanged activeMode=${event.activeModeRaw} -> update indicator")
+                            _uiState.update { it.copy(runtimeMode = mode) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG: String = "FloorCatalogSync"
+        private const val CATALOG_SYNC_DEBOUNCE_MS: Long = 1_500L
     }
 }

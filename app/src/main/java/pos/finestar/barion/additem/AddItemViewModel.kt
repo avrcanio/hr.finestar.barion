@@ -1,5 +1,6 @@
 package pos.finestar.barion.additem
 
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,7 +9,10 @@ import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +33,8 @@ import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
 import pos.finestar.barion.domain.usecase.SendToBarUseCase
+import pos.finestar.barion.domain.usecase.SyncCatalogUseCase
+import pos.finestar.barion.sync.CatalogPresentationEventBus
 import pos.finestar.barion.ui.navigation.NavRoutes
 
 @HiltViewModel
@@ -36,10 +42,12 @@ class AddItemViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getCatalogBootstrapUseCase: GetCatalogBootstrapUseCase,
     private val searchProductsUseCase: SearchProductsUseCase,
+    private val syncCatalogUseCase: SyncCatalogUseCase,
     private val getProductModifiersUseCase: GetProductModifiersUseCase,
     private val previewBundlePriceUseCase: PreviewBundlePriceUseCase,
     private val addItemToCheckUseCase: AddItemToCheckUseCase,
-    private val sendToBarUseCase: SendToBarUseCase
+    private val sendToBarUseCase: SendToBarUseCase,
+    private val catalogPresentationEventBus: CatalogPresentationEventBus
 ) : ViewModel() {
     data class CategoryUi(
         val id: Long?,
@@ -51,6 +59,10 @@ class AddItemViewModel @Inject constructor(
         val name: String,
         val code: String?,
         val imageUrl: String?,
+        val thumbnailUrl: String?,
+        val detailImageUrl: String?,
+        val imageVersion: Long?,
+        val modifierVersion: Long?,
         val unitPrice: Double
     )
 
@@ -126,6 +138,9 @@ class AddItemViewModel @Inject constructor(
     private val checkId: Long = savedStateHandle[NavRoutes.ARG_CHECK_ID] ?: 0L
     private val tableName: String = savedStateHandle[NavRoutes.ARG_TABLE_NAME] ?: "Unknown"
     private var searchJob: Job? = null
+    private var periodicSyncJob: Job? = null
+    private val periodicSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var lastCatalogSyncTriggerAtMs: Long = 0L
     private val modifierHintsInFlight = Collections.synchronizedSet(mutableSetOf<Long>())
     private val cartLineIdGenerator = AtomicLong(1L)
     private val navigateToCheckRequestIdGenerator = AtomicLong(0L)
@@ -140,7 +155,13 @@ class AddItemViewModel @Inject constructor(
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
+        observePresentationEvents()
+        startPeriodicSync()
         loadInitial()
+    }
+
+    fun onForeground() {
+        triggerCatalogSync(source = "additem_foreground")
     }
 
     fun onQueryChanged(newQuery: String) {
@@ -199,7 +220,11 @@ class AddItemViewModel @Inject constructor(
             }
 
             runCatching {
-                getProductModifiersUseCase(productId = product.id, forceRefresh = false)
+                getProductModifiersUseCase(
+                    productId = product.id,
+                    expectedModifierVersion = product.modifierVersion,
+                    forceRefresh = false
+                )
             }.onSuccess { config ->
                 _uiState.update {
                     it.copy(
@@ -602,20 +627,34 @@ class AddItemViewModel @Inject constructor(
         }
     }
 
+    override fun onCleared() {
+        periodicSyncJob?.cancel()
+        periodicSyncScope.coroutineContext[Job]?.cancel()
+        super.onCleared()
+    }
+
     private fun loadInitial() {
+        triggerCatalogSync(source = "additem_init")
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, isProductsLoading = true, error = null) }
             runCatching {
                 val bootstrap = getCatalogBootstrapUseCase(
-                    includeProducts = true,
+                    includeProducts = false,
                     forceRefresh = false
                 )
                 val categories = bootstrap.categories
                     .map { CategoryUi(id = it.id, label = it.name) }
+                val resolvedSelectedCategoryId = bootstrap.selectedCategoryId
+                    ?: categories.firstOrNull()?.id
+                val products = searchProductsUseCase(
+                    query = null,
+                    categoryId = resolvedSelectedCategoryId,
+                    forceRefresh = false
+                ).map { it.toUi() }
                 Triple(
                     categories,
-                    bootstrap.selectedCategoryId,
-                    bootstrap.products.map { it.toUi() }
+                    resolvedSelectedCategoryId,
+                    products
                 )
             }.onSuccess { (categories, selectedCategoryId, products) ->
                 _uiState.update {
@@ -643,6 +682,64 @@ class AddItemViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun startPeriodicSync() {
+        if (periodicSyncJob != null) return
+        periodicSyncJob = periodicSyncScope.launch {
+            while (true) {
+                delay(PERIODIC_SYNC_MILLIS)
+                triggerCatalogSync(source = "additem_periodic_5m")
+            }
+        }
+    }
+
+    private fun observePresentationEvents() {
+        viewModelScope.launch {
+            catalogPresentationEventBus.events.collect { event ->
+                when (event) {
+                    is CatalogPresentationEventBus.Event.RuntimeModeChanged -> {
+                        val snapshot = _uiState.value
+                        logDebug(
+                            "runtimeModeChanged activeMode=${event.activeModeRaw} query='${snapshot.query}' selectedCategory=${snapshot.selectedCategoryId} -> refresh"
+                        )
+                        _uiState.update {
+                            it.copy(
+                                isProductsLoading = true,
+                                products = emptyList(),
+                                error = null
+                            )
+                        }
+                        refreshCatalogInBackground(
+                            query = snapshot.query,
+                            selectedCategoryId = snapshot.selectedCategoryId
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun triggerCatalogSync(source: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastCatalogSyncTriggerAtMs < CATALOG_SYNC_DEBOUNCE_MS) {
+            logDebug("triggerCatalogSync skipped source=$source reason=debounced deltaMs=${now - lastCatalogSyncTriggerAtMs}")
+            return
+        }
+        lastCatalogSyncTriggerAtMs = now
+        viewModelScope.launch {
+            logDebug("triggerCatalogSync source=$source")
+            runCatching { syncCatalogUseCase(forceBootstrap = false) }
+                .onFailure { logWarn("triggerCatalogSync failed source=$source msg=${it.message}", it) }
+        }
+    }
+
+    private fun logDebug(message: String) {
+        runCatching { Log.d(TAG, message) }
+    }
+
+    private fun logWarn(message: String, throwable: Throwable? = null) {
+        runCatching { Log.w(TAG, message, throwable) }
     }
 
     private fun searchProductsDebounced() {
@@ -770,7 +867,7 @@ class AddItemViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val bootstrap = getCatalogBootstrapUseCase(
-                    includeProducts = query.isBlank(),
+                    includeProducts = false,
                     forceRefresh = true
                 )
                 val freshCategories = bootstrap.categories
@@ -779,16 +876,11 @@ class AddItemViewModel @Inject constructor(
                     ?: bootstrap.selectedCategoryId
                     ?: freshCategories.firstOrNull()?.id
                 val freshProducts = if (query.isBlank()) {
-                    val bootstrapProducts = bootstrap.products
-                    if (bootstrapProducts.isNotEmpty() || resolvedSelectedCategoryId == null) {
-                        bootstrapProducts.map { it.toUi() }
-                    } else {
-                        searchProductsUseCase(
-                            query = null,
-                            categoryId = resolvedSelectedCategoryId,
-                            forceRefresh = true
-                        ).map { it.toUi() }
-                    }
+                    searchProductsUseCase(
+                        query = null,
+                        categoryId = resolvedSelectedCategoryId,
+                        forceRefresh = false
+                    ).map { it.toUi() }
                 } else {
                     loadProductsForCurrentMode(
                         query = query,
@@ -826,7 +918,12 @@ class AddItemViewModel @Inject constructor(
 
             viewModelScope.launch {
                 val hasModifiers = runCatching {
-                    getProductModifiersUseCase(productId = productId, forceRefresh = false).groups.isNotEmpty()
+                    val versionHint = products.firstOrNull { it.id == productId }?.modifierVersion
+                    getProductModifiersUseCase(
+                        productId = productId,
+                        expectedModifierVersion = versionHint,
+                        forceRefresh = false
+                    ).groups.isNotEmpty()
                 }.getOrDefault(false)
                 _uiState.update {
                     it.copy(hasModifiersByProductId = it.hasModifiersByProductId + (productId to hasModifiers))
@@ -837,11 +934,18 @@ class AddItemViewModel @Inject constructor(
     }
 
     private fun CatalogProduct.toUi(): ProductUi {
+        val resolvedThumbnail = normalizeImageUrl(thumbnailUrl ?: image46x75 ?: image125x200 ?: image)
+        val resolvedDetail = normalizeImageUrl(imageUrl ?: image125x200 ?: image46x75 ?: image)
+        val versionedThumbnail = appendVersion(resolvedThumbnail, imageVersion)
         return ProductUi(
             id = id,
             name = name,
             code = code,
-            imageUrl = normalizeImageUrl(image46x75 ?: image125x200 ?: image),
+            imageUrl = versionedThumbnail ?: appendVersion(resolvedDetail, imageVersion),
+            thumbnailUrl = versionedThumbnail,
+            detailImageUrl = appendVersion(resolvedDetail, imageVersion),
+            imageVersion = imageVersion,
+            modifierVersion = modifierVersion,
             unitPrice = price
         )
     }
@@ -853,6 +957,18 @@ class AddItemViewModel @Inject constructor(
         val base = BuildConfig.BARION_API_BASE_URL.trimEnd('/')
         val path = raw.trimStart('/')
         return "$base/$path"
+    }
+
+    private fun appendVersion(raw: String?, version: Long?): String? {
+        if (raw.isNullOrBlank() || version == null) return raw
+        val separator = if (raw.contains("?")) "&" else "?"
+        return "$raw${separator}v=$version"
+    }
+
+    companion object {
+        private const val TAG: String = "AddItemCatalogSync"
+        private const val PERIODIC_SYNC_MILLIS: Long = 5L * 60L * 1000L
+        private const val CATALOG_SYNC_DEBOUNCE_MS: Long = 1_500L
     }
 
 }

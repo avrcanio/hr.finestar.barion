@@ -13,3 +13,5 @@
 /logcat/
 *.logcat
 .env
+google-services.json
+app/google-services.json

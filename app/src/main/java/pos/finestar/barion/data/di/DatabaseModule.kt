@@ -10,6 +10,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 import pos.finestar.barion.data.local.ApiCacheDao
 import pos.finestar.barion.data.local.BarionDatabase
+import pos.finestar.barion.data.local.CatalogSyncDao
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -29,4 +30,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideApiCacheDao(database: BarionDatabase): ApiCacheDao = database.apiCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideCatalogSyncDao(database: BarionDatabase): CatalogSyncDao = database.catalogSyncDao()
 }

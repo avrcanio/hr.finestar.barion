@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -30,6 +31,10 @@ android {
             ?.trim()
             ?.takeIf { it.isNotBlank() }
         if (projectValue != null) return projectValue
+        val processEnvValue = System.getenv(name)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        if (processEnvValue != null) return processEnvValue
         return envValues[name]
             ?.trim()
             ?.takeIf { it.isNotBlank() }
@@ -53,6 +58,14 @@ android {
     val vivaCallbackHost = propertyOrEnv("VIVA_CALLBACK_HOST", "result")
     val vivaTerminalPackage = propertyOrEnv("VIVA_TERMINAL_PACKAGE", "com.vivawallet.spoc.payapp")
     val vivaCallbackTimeoutMs = propertyOrEnv("VIVA_CALLBACK_TIMEOUT_MS", "45000")
+    val catalogFcmEnabled = propertyOrEnv("CATALOG_FCM_ENABLED", "true")
+        .lowercase()
+        .let { value ->
+            when (value) {
+                "1", "true", "yes", "on" -> "true"
+                else -> "false"
+            }
+        }
 
     fun asBuildConfigString(value: String): String {
         val escaped = value
@@ -68,8 +81,8 @@ android {
         applicationId = "pos.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 141
-        versionName = "1.141"
+        versionCode = 151
+        versionName = "1.151"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
@@ -89,6 +102,7 @@ android {
         buildConfigField("String", "VIVA_CALLBACK_HOST", asBuildConfigString(vivaCallbackHost))
         buildConfigField("String", "VIVA_TERMINAL_PACKAGE", asBuildConfigString(vivaTerminalPackage))
         buildConfigField("int", "VIVA_CALLBACK_TIMEOUT_MS", vivaCallbackTimeoutMs)
+        buildConfigField("boolean", "CATALOG_FCM_ENABLED", catalogFcmEnabled)
         manifestPlaceholders["VIVA_CALLBACK_SCHEME"] = vivaCallbackScheme
         manifestPlaceholders["VIVA_CALLBACK_HOST"] = vivaCallbackHost
     }
@@ -130,6 +144,7 @@ android {
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val firebaseBom = platform("com.google.firebase:firebase-bom:34.11.0")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core-splashscreen:1.0.1")
@@ -153,6 +168,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("com.google.dagger:hilt-android:2.52")
@@ -163,6 +179,8 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation(firebaseBom)
+    implementation("com.google.firebase:firebase-messaging")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

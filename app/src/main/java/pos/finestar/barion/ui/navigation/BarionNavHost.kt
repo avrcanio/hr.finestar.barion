@@ -199,6 +199,17 @@ fun BarionNavHost() {
         ) {
             val vm: AddItemViewModel = hiltViewModel()
             val uiState = vm.uiState.collectAsStateWithLifecycle()
+            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        vm.onForeground()
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
 
             LaunchedEffect(uiState.value.navigateToCheckRequestId) {
                 if (uiState.value.navigateToCheckRequestId > 0L) {

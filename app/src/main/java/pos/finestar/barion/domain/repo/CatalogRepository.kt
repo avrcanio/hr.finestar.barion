@@ -8,6 +8,8 @@ import pos.finestar.barion.domain.model.ProductModifiersConfig
 import pos.finestar.barion.domain.model.SelectedModifier
 
 interface CatalogRepository {
+    suspend fun syncCatalog(forceBootstrap: Boolean = false)
+
     suspend fun getCatalogBootstrap(
         includeProducts: Boolean = true,
         forceRefresh: Boolean = false
@@ -21,6 +23,7 @@ interface CatalogRepository {
 
     suspend fun getProductModifiers(
         productId: Long,
+        expectedModifierVersion: Long? = null,
         forceRefresh: Boolean = false
     ): ProductModifiersConfig
 

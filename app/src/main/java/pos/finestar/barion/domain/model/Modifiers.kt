@@ -53,6 +53,7 @@ data class ProductModifierGroup(
 
 data class ProductModifiersConfig(
     val artiklId: Long,
+    val modifierVersion: Long? = null,
     val groups: List<ProductModifierGroup> = emptyList(),
     val allowNote: Boolean = true
 )

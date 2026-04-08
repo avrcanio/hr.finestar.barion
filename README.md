@@ -8,16 +8,15 @@ Barion je tablet-first POS aplikacija za bar/klub rad: floor plan, otvoreni chec
 
 - Repo: `avrcanio/pos.finestar.barion`
 - Android app package: `pos.finestar.barion`
-- Trenutna app verzija: `versionCode=100`, `versionName=1.100`
+- Trenutna app verzija: `versionCode=151`, `versionName=1.151`
 - Backend base URL (default): `https://mozart.sibenik1983.hr/`
 
 ## Issue status (GitHub)
 
-Pregledano je svih 48 issue-a.
+Aktualno stanje je promijenjeno kroz catalog sync/FCM radove.
 
-- Zatvoreno: `44`
-- Otvoreno: `4` (`#33`, `#42`, `#43`, `#44`)
-- Najnovije zatvoreno: `#46`, `#47`, `#48`
+- Na dan `2026-04-08` otvoreni su: `#52`, `#53`, `#54`, `#55`
+- Plan issue-i `#56-#62` su implementirani i zatvoreni.
 
 ### Što je isporučeno kroz issue-e
 
@@ -60,6 +59,14 @@ Pregledano je svih 48 issue-a.
   - per-part pay (`Gotovina` / `Kartica` confirm),
   - close check guard tek kad su svi partovi plaćeni i remaining qty = 0.
 - Runtime mode indikator (sunce/mjesec) na floor planu + ručni refresh moda.
+- Runtime mode instant sync preko FCM triggera:
+  - backend šalje `catalog_changed` na topic `barion_catalog`,
+  - Android radi delta sync (`forceBootstrap=false`),
+  - nakon synca povlači `/api/pos/runtime-mode/`,
+  - ako se mode promijenio, odmah osvježava UI bez relauncha appa.
+- Add Item kategorije koriste category-filtered search flow:
+  - više se ne rendera nefiltrirani `bootstrap.products` set,
+  - kategorija prikazuje samo svoje artikle.
 
 ## API endpointi koje Android koristi
 
@@ -79,6 +86,7 @@ Pregledano je svih 48 issue-a.
 ### Katalog
 
 - `GET /api/pos/bootstrap/?include_products=1`
+- `GET /api/pos/catalog/changes/?afterVersion=...&limit=...`
 - `GET /api/pos/categories/display/`
 - `GET /api/pos/products/search/?category_id=...&q=...&limit=100&sort=popular`
 - `GET /api/pos/products/{artikl_id}/modifiers/`
@@ -137,6 +145,19 @@ Periodični cleanup cachea:
 - interval: svakih `24h` (initial delay `12h`)
 - čišćenje: `deleteOlderThan(...)`, retention `3 dana`
 
+## Catalog sync + FCM
+
+- Canonical lokalni store: Room (`catalog_products`, `catalog_categories`, `catalog_layout_snapshots`, sync metadata, modifier cache).
+- Delta engine koristi `afterVersion/targetVersion/appliedThroughVersion/hasMore/requiresFullSync`.
+- Triggeri:
+  - app start
+  - foreground
+  - periodični fallback (`5 min`)
+  - FCM `catalog_changed`
+- Concurrency guard:
+  - samo jedan sync in-flight
+  - ako novi trigger stigne tijekom synca, postavlja se `pendingRefresh` i odradi jedan follow-up sync.
+
 ## Tehnologije
 
 - Kotlin, Jetpack Compose
@@ -171,6 +192,16 @@ Napomena:
 
 - Script očekuje signer secrets file preko `POS_SIGNER_SECRETS`.
 - Ako nije postavljen, koristi default path u skripti.
+- Ime skripte je legacy (`prodNogms`), ali trenutno gradi `:app:assembleDebug`.
+
+### FCM lokalni setup
+
+1. Firebase Android app package mora biti `pos.finestar.barion`.
+2. Lokalni config stavi u `app/google-services.json`.
+3. U `.env` postavi `CATALOG_FCM_ENABLED=true`.
+4. Nakon login/bootstrapa provjeri log:
+   - `CatalogPushSub subscribed topic=barion_catalog`
+   - `CatalogPushFCM onMessageReceived ...`
 
 ## Struktura projekta
 
@@ -185,10 +216,10 @@ Napomena:
 
 ## Otvorene stavke
 
-- `#33`: tips per card settlement part (epic).
-- `#42`: card tip sheet (`0/5/10/custom`) + confirm UI.
-- `#43`: tip calculation (cents) + Viva request/confirm mapping.
-- `#44`: declined/retry flow testovi + receipt handoff.
+- `#52`: univerzalni modifier/bundle model za bulk napitke.
+- `#53`: proširena pretraga po `drink_category_name`.
+- `#54`: fullscreen immersive sticky mode.
+- `#55`: image manifest + sync endpoint za image caching.
 
 ---
 

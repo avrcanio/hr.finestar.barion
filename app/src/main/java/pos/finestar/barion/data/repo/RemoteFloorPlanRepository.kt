@@ -9,6 +9,8 @@ import pos.finestar.barion.api.PosApi
 import pos.finestar.barion.api.model.ApiErrorDto
 import pos.finestar.barion.data.local.ApiCacheDao
 import pos.finestar.barion.data.local.ApiCacheEntity
+import pos.finestar.barion.data.local.CatalogSyncDao
+import pos.finestar.barion.data.local.CatalogSyncMetadataEntity
 import pos.finestar.barion.domain.model.AllowedLayout
 import pos.finestar.barion.domain.model.FloorTable
 import pos.finestar.barion.domain.model.FloorPlanData
@@ -21,7 +23,8 @@ import retrofit2.HttpException
 class RemoteFloorPlanRepository @Inject constructor(
     private val api: PosApi,
     private val gson: Gson,
-    private val apiCacheDao: ApiCacheDao
+    private val apiCacheDao: ApiCacheDao,
+    private val catalogSyncDao: CatalogSyncDao
 ) : FloorPlanRepository {
 
     private val activeLayoutTtlMillis = 60_000L
@@ -133,6 +136,13 @@ class RemoteFloorPlanRepository @Inject constructor(
 
         return try {
             val fresh = RuntimeMode.fromRaw(api.getRuntimeMode().activeMode)
+            val metadata = catalogSyncDao.getMetadata()
+            catalogSyncDao.upsertMetadata(
+                (metadata ?: CatalogSyncMetadataEntity()).copy(
+                    activeModeRaw = fresh.name.lowercase(),
+                    updatedAtMillis = System.currentTimeMillis()
+                )
+            )
             writeCacheEntry(cacheKey, fresh)
             fresh
         } catch (t: Throwable) {

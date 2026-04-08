@@ -14,6 +14,7 @@ data class CategoryDisplay(
 )
 
 data class CatalogBootstrap(
+    val catalogVersion: Long = 0L,
     val activeMode: String = "unknown",
     val rootId: Long = 0L,
     val displayLevel: Int = 1,
@@ -26,12 +27,19 @@ data class CatalogProduct(
     val id: Long,
     val name: String,
     val code: String? = null,
+    val rmId: Long? = null,
     val image: String? = null,
     val image46x75: String? = null,
     val image125x200: String? = null,
+    val thumbnailUrl: String? = null,
+    val imageUrl: String? = null,
+    val imageVersion: Long? = null,
+    val modifierVersion: Long? = null,
     val categoryId: Long? = null,
     val categoryName: String? = null,
     val isSellable: Boolean = true,
     val isStockItem: Boolean = true,
-    val price: Double = 0.0
+    val price: Double = 0.0,
+    val taxRate: Double? = null,
+    val popularityScore: Double? = null
 )

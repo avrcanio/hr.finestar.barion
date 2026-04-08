@@ -1,5 +1,6 @@
 package pos.finestar.barion.data.repo
 
+import android.util.Log
 import com.google.gson.Gson
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -10,18 +11,23 @@ import pos.finestar.barion.api.model.PinLoginRequestDto
 import pos.finestar.barion.api.model.PinVerifyRequestDto
 import pos.finestar.barion.data.auth.SessionStore
 import pos.finestar.barion.domain.repo.AuthRepository
+import pos.finestar.barion.sync.CatalogPushSubscriptionManager
 import retrofit2.HttpException
 
 @Singleton
 class RemoteAuthRepository @Inject constructor(
     private val api: PosApi,
     private val sessionStore: SessionStore,
-    private val gson: Gson
+    private val gson: Gson,
+    private val catalogPushSubscriptionManager: CatalogPushSubscriptionManager
 ) : AuthRepository {
 
     override suspend fun bootstrapSession(): Boolean {
         val token = sessionStore.currentToken()
-        if (token.isNullOrBlank()) return false
+        if (token.isNullOrBlank()) {
+            Log.d(TAG, "bootstrapSession skipped: no token")
+            return false
+        }
 
         return runCatching {
             val me = api.me()
@@ -32,7 +38,10 @@ class RemoteAuthRepository @Inject constructor(
                 firstName = me.firstName,
                 lastName = me.lastName
             )
+            catalogPushSubscriptionManager.ensureSubscribedIfEnabled()
+            Log.d(TAG, "bootstrapSession success userId=${me.id}")
         }.onFailure {
+            Log.w(TAG, "bootstrapSession failed: ${it.message}", it)
             sessionStore.clear()
         }.isSuccess
     }
@@ -61,6 +70,8 @@ class RemoteAuthRepository @Inject constructor(
                 firstName = me.firstName,
                 lastName = me.lastName
             )
+            catalogPushSubscriptionManager.ensureSubscribedIfEnabled()
+            Log.d(TAG, "loginWithPin success userId=${me.id}")
         } catch (httpException: HttpException) {
             val detail = parseErrorDetail(httpException.response()?.errorBody())
             throw IllegalStateException(detail ?: "PIN login failed.")
@@ -79,8 +90,10 @@ class RemoteAuthRepository @Inject constructor(
     override suspend fun currentUserDisplayName(): String? = sessionStore.currentDisplayName()
 
     override suspend fun logout() {
+        catalogPushSubscriptionManager.unsubscribeIfEnabled()
         runCatching { api.logout() }
         sessionStore.clear()
+        Log.d(TAG, "logout completed")
     }
 
     private fun parseErrorDetail(errorBody: ResponseBody?): String? {
@@ -90,5 +103,9 @@ class RemoteAuthRepository @Inject constructor(
         return runCatching {
             gson.fromJson(raw, ApiErrorDto::class.java).detail
         }.getOrNull()
+    }
+
+    companion object {
+        private const val TAG: String = "RemoteAuthRepo"
     }
 }

@@ -25,6 +25,8 @@ import pos.finestar.barion.domain.usecase.GetProductModifiersUseCase
 import pos.finestar.barion.domain.usecase.PreviewBundlePriceUseCase
 import pos.finestar.barion.domain.usecase.SearchProductsUseCase
 import pos.finestar.barion.domain.usecase.SendToBarUseCase
+import pos.finestar.barion.domain.usecase.SyncCatalogUseCase
+import pos.finestar.barion.sync.CatalogPresentationEventBus
 import pos.finestar.barion.testutil.MainDispatcherRule
 import pos.finestar.barion.ui.navigation.NavRoutes
 
@@ -284,10 +286,12 @@ class AddItemViewModelTest {
             ),
             getCatalogBootstrapUseCase = GetCatalogBootstrapUseCase(catalogRepo),
             searchProductsUseCase = SearchProductsUseCase(catalogRepo),
+            syncCatalogUseCase = SyncCatalogUseCase(catalogRepo),
             getProductModifiersUseCase = GetProductModifiersUseCase(catalogRepo),
             previewBundlePriceUseCase = PreviewBundlePriceUseCase(catalogRepo),
             addItemToCheckUseCase = AddItemToCheckUseCase(checkRepo),
-            sendToBarUseCase = SendToBarUseCase(checkRepo)
+            sendToBarUseCase = SendToBarUseCase(checkRepo),
+            catalogPresentationEventBus = CatalogPresentationEventBus()
         )
     }
 
@@ -316,6 +320,8 @@ class AddItemViewModelTest {
             CatalogProduct(id = 2L, name = "Pivo", categoryId = 20L, price = 3.4),
             CatalogProduct(id = 4L, name = "Lager", categoryId = 20L, price = 3.6)
         )
+
+        override suspend fun syncCatalog(forceBootstrap: Boolean) = Unit
 
         override suspend fun getCatalogBootstrap(
             includeProducts: Boolean,
@@ -361,6 +367,7 @@ class AddItemViewModelTest {
 
         override suspend fun getProductModifiers(
             productId: Long,
+            expectedModifierVersion: Long?,
             forceRefresh: Boolean
         ): ProductModifiersConfig = ProductModifiersConfig(artiklId = productId, groups = emptyList())
 
