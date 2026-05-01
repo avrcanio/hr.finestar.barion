@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "pos.finestar.barion"
+rootProject.name = "hr.finestar.barion"
 include(":app")

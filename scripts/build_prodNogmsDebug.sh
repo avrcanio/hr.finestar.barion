@@ -11,7 +11,7 @@ mkdir -p "$GRADLE_USER_HOME"
 BUILD_FILE="app/build.gradle.kts"
 GRADLE_TASK=":app:assembleDebug"
 APK_IN="app/build/outputs/apk/debug/app-debug.apk"
-APK_OUT="app/build/outputs/apk/debug/pos.finestar.barion-debug-signed.apk"
+APK_OUT="app/build/outputs/apk/debug/hr.finestar.barion-debug-signed.apk"
 
 # Can be overridden from environment.
 SECRETS="${POS_SIGNER_SECRETS:-/srv/keystore/qubit-signer.secrets}"

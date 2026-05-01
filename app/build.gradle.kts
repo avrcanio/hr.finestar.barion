@@ -74,11 +74,11 @@ android {
         return "\"$escaped\""
     }
 
-    namespace = "pos.finestar.barion"
+    namespace = "hr.finestar.barion"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "pos.finestar.barion"
+        applicationId = "hr.finestar.barion"
         minSdk = 26
         targetSdk = 35
         versionCode = 151

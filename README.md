@@ -6,10 +6,13 @@ Barion je tablet-first POS aplikacija za bar/klub rad: floor plan, otvoreni chec
 
 ## Trenutni status projekta
 
-- Repo: `avrcanio/pos.finestar.barion`
-- Android app package: `pos.finestar.barion`
+- Repo: `avrcanio/hr.finestar.barion`
+- Android app package: `hr.finestar.barion`
 - Trenutna app verzija: `versionCode=151`, `versionName=1.151`
 - Backend base URL (default): `https://mozart.sibenik1983.hr/`
+- Backend (Django / Docker): [avrcanio/caffe-bar-managment](https://github.com/avrcanio/caffe-bar-managment) — lokalno tipično uz `http://localhost:8003` (vidi backend README).
+- **Cursor multi-root:** u repou otvori [`barion-stack.code-workspace`](barion-stack.code-workspace) (očekuje backend klon kao `../caffe-bar-managment` uz ovaj folder).
+- Zajednički API indeks: [docs/POS_API_CONTRACT.md](docs/POS_API_CONTRACT.md) (kanonski klijentski ugovor: `PosApi.kt`).
 
 ## Issue status (GitHub)
 
@@ -196,7 +199,7 @@ Napomena:
 
 ### FCM lokalni setup
 
-1. Firebase Android app package mora biti `pos.finestar.barion`.
+1. Firebase Android app package mora biti `hr.finestar.barion`.
 2. Lokalni config stavi u `app/google-services.json`.
 3. U `.env` postavi `CATALOG_FCM_ENABLED=true`.
 4. Nakon login/bootstrapa provjeri log:
@@ -205,13 +208,13 @@ Napomena:
 
 ## Struktura projekta
 
-- `app/src/main/java/pos/finestar/barion/auth` - auth gate, PIN login, session bootstrap
-- `app/src/main/java/pos/finestar/barion/floorplan` - floor rendering, layout selector
-- `app/src/main/java/pos/finestar/barion/check` - check prikaz, round totals, storno/gratis/otpis, pay/free
-- `app/src/main/java/pos/finestar/barion/additem` - pretraga artikala, kategorije, košarica, slanje runde
-- `app/src/main/java/pos/finestar/barion/data/repo` - API + mapiranja + cache sloj
-- `app/src/main/java/pos/finestar/barion/data/local` - Room cache + cleanup worker
-- `app/src/main/java/pos/finestar/barion/domain` - modeli, repo ugovori, use-casevi
+- `app/src/main/java/hr/finestar/barion/auth` - auth gate, PIN login, session bootstrap
+- `app/src/main/java/hr/finestar/barion/floorplan` - floor rendering, layout selector
+- `app/src/main/java/hr/finestar/barion/check` - check prikaz, round totals, storno/gratis/otpis, pay/free
+- `app/src/main/java/hr/finestar/barion/additem` - pretraga artikala, kategorije, košarica, slanje runde
+- `app/src/main/java/hr/finestar/barion/data/repo` - API + mapiranja + cache sloj
+- `app/src/main/java/hr/finestar/barion/data/local` - Room cache + cleanup worker
+- `app/src/main/java/hr/finestar/barion/domain` - modeli, repo ugovori, use-casevi
 - `docs/qa` - QA checklist i contract test napomene
 
 ## Otvorene stavke
