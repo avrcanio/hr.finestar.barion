@@ -6,12 +6,19 @@ import android.util.Log
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
+import javax.inject.Inject
 import hr.finestar.barion.data.local.ApiCacheCleanupWorker
 
 @HiltAndroidApp
-class BarionApp : Application() {
+class BarionApp : Application(), ImageLoaderFactory {
+
+    @Inject
+    lateinit var imageLoader: ImageLoader
+
     override fun onCreate() {
         super.onCreate()
         val googleAppIdResId = resources.getIdentifier("google_app_id", "string", packageName)
@@ -23,6 +30,8 @@ class BarionApp : Application() {
         )
         scheduleApiCacheCleanup()
     }
+
+    override fun newImageLoader(): ImageLoader = imageLoader
 
     private fun scheduleApiCacheCleanup() {
         val request = PeriodicWorkRequestBuilder<ApiCacheCleanupWorker>(24, TimeUnit.HOURS)

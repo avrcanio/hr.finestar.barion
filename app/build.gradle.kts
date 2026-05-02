@@ -1,6 +1,9 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services")
@@ -81,8 +84,8 @@ android {
         applicationId = "hr.finestar.barion"
         minSdk = 26
         targetSdk = 35
-        versionCode = 151
-        versionName = "1.151"
+        versionCode = 152
+        versionName = "1.152"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BARION_API_BASE_URL", "\"$apiBaseUrl\"")
@@ -107,8 +110,34 @@ android {
         manifestPlaceholders["VIVA_CALLBACK_HOST"] = vivaCallbackHost
     }
 
+    val releaseKeystoreProperties = Properties()
+    val releaseKeystorePropsFile = file("C:/Users/avrca/Documents/Projects/key.properties")
+    if (releaseKeystorePropsFile.exists()) {
+        releaseKeystorePropsFile.inputStream().use { releaseKeystoreProperties.load(it) }
+    }
+
+    signingConfigs {
+        create("release") {
+            if (!releaseKeystorePropsFile.exists()) {
+                throw org.gradle.api.GradleException(
+                    "Release signing: missing ${releaseKeystorePropsFile.absolutePath}"
+                )
+            }
+            keyAlias = releaseKeystoreProperties.getProperty("keyAlias")
+                ?: error("key.properties: missing keyAlias")
+            keyPassword = releaseKeystoreProperties.getProperty("keyPassword")
+                ?: error("key.properties: missing keyPassword")
+            storePassword = releaseKeystoreProperties.getProperty("storePassword")
+                ?: error("key.properties: missing storePassword")
+            val storePath = releaseKeystoreProperties.getProperty("storeFile")
+                ?: "C:/Users/avrca/Documents/Projects/upload-keystore.jks"
+            storeFile = file(storePath)
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -131,19 +160,16 @@ android {
         buildConfig = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
-
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            pickFirsts += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
     }
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
     val firebaseBom = platform("com.google.firebase:firebase-bom:34.11.0")
 
     implementation("androidx.core:core-ktx:1.15.0")
@@ -160,25 +186,27 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
+    implementation("io.coil-kt:coil:2.7.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.8")
 
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.7.2")
 
-    implementation("com.google.dagger:hilt-android:2.52")
-    ksp("com.google.dagger:hilt-android-compiler:2.52")
+    implementation("com.google.dagger:hilt-android:2.56")
+    ksp("com.google.dagger:hilt-android-compiler:2.56")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.2.1")
+    implementation("com.squareup.okhttp3:logging-interceptor:5.2.1")
     implementation(firebaseBom)
     implementation("com.google.firebase:firebase-messaging")
 

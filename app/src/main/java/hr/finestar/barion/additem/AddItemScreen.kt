@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -61,10 +62,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.imageLoader
+import coil.request.ImageRequest
 import java.util.Locale
 import kotlin.math.abs
 import hr.finestar.barion.domain.model.ModifierType
@@ -94,6 +98,18 @@ fun AddItemScreen(
     onMessageShown: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val imageLoader = context.imageLoader
+
+    LaunchedEffect(state.products) {
+        state.products.take(20).forEach { product ->
+            val url = product.thumbnailUrl ?: product.imageUrl ?: return@forEach
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .build()
+            imageLoader.enqueue(request)
+        }
+    }
 
     LaunchedEffect(state.message) {
         val message = state.message
@@ -328,8 +344,10 @@ private fun CategoriesColumn(
         state = listState,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        items(categories.size) { index ->
-            val category = categories[index]
+        items(
+            items = categories,
+            key = { "${it.id}|${it.label}" }
+        ) { category ->
             CategoryItem(
                 category = category,
                 selected = category.id == selectedId,
@@ -367,8 +385,10 @@ private fun CategoriesRow(
         state = listState,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        items(categories.size) { index ->
-            val category = categories[index]
+        items(
+            items = categories,
+            key = { "${it.id}|${it.label}" }
+        ) { category ->
             CategoryItem(
                 category = category,
                 selected = category.id == selectedId,
@@ -441,7 +461,10 @@ private fun ProductsGrid(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(products) { product ->
+        items(
+            items = products,
+            key = { it.id }
+        ) { product ->
             val orderedQty = cartQtyByProductId[product.id] ?: 0
             val hasModifiers = hasModifiersByProductId[product.id] == true
             val isConfigured = cartConfiguredByProductId[product.id] == true
@@ -741,8 +764,10 @@ private fun OrderReviewScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(cart.size) { index ->
-                    val item = cart[index]
+                items(
+                    items = cart,
+                    key = { it.lineId }
+                ) { item ->
                     Card {
                         Row(
                             modifier = Modifier

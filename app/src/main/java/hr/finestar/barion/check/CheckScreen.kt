@@ -577,7 +577,10 @@ private fun SplitFlowDialog(
                             modifier = Modifier.height(280.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(lines) { item ->
+                            items(
+                                items = lines,
+                                key = { it.checkItemId }
+                            ) { item ->
                                 Card(modifier = Modifier.fillMaxWidth()) {
                                     Column(
                                         modifier = Modifier
@@ -714,7 +717,10 @@ private fun ItemsList(
                 }
             }
 
-            items(displayCards) { card ->
+            items(
+                items = displayCards,
+                key = { displayCardKey(roundNumber, it) }
+            ) { card ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -875,6 +881,13 @@ private fun paidLineColor(uiColor: String?): Color {
         "light_blue" -> Color(0xFFE3F2FD)
         else -> Color(0xFFE3F2FD)
     }
+}
+
+private fun displayCardKey(roundNumber: Int?, card: DisplayCard): String {
+    val r = roundNumber?.toString() ?: "nr"
+    val anchor = card.sourceItem?.itemId?.let { "i$it" }
+        ?: "${card.lineType}_${card.name}_${card.qty}_${card.price}_${card.total}"
+    return "${r}_$anchor"
 }
 
 private data class DisplayCard(

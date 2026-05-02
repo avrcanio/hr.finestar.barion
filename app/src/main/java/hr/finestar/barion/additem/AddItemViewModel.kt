@@ -1,6 +1,7 @@
 package hr.finestar.barion.additem
 
 import android.util.Log
+import androidx.compose.runtime.Stable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import hr.finestar.barion.BuildConfig
 import hr.finestar.barion.domain.model.CatalogProduct
 import hr.finestar.barion.domain.model.ModifierType
@@ -49,11 +52,13 @@ class AddItemViewModel @Inject constructor(
     private val sendToBarUseCase: SendToBarUseCase,
     private val catalogPresentationEventBus: CatalogPresentationEventBus
 ) : ViewModel() {
+    @Stable
     data class CategoryUi(
         val id: Long?,
         val label: String
     )
 
+    @Stable
     data class ProductUi(
         val id: Long,
         val name: String,
@@ -66,6 +71,7 @@ class AddItemViewModel @Inject constructor(
         val unitPrice: Double
     )
 
+    @Stable
     data class ModifierOptionUi(
         val id: Long,
         val name: String,
@@ -77,6 +83,7 @@ class AddItemViewModel @Inject constructor(
         val quantity: Int = 0
     )
 
+    @Stable
     data class ModifierGroupUi(
         val id: Long,
         val name: String,
@@ -84,7 +91,7 @@ class AddItemViewModel @Inject constructor(
         val selectionMode: SelectionMode,
         val minSelect: Int,
         val maxSelect: Int?,
-        val options: List<ModifierOptionUi>
+        val options: ImmutableList<ModifierOptionUi>
     )
 
     data class CartItemUi(
@@ -276,7 +283,7 @@ class AddItemViewModel @Inject constructor(
                         option
                     }
                 }
-                group.copy(options = toggled)
+                group.copy(options = toggled.toImmutableList())
             }
             state.copy(modifierDialogGroups = updatedGroups)
         }
@@ -297,7 +304,7 @@ class AddItemViewModel @Inject constructor(
                         option.copy(quantity = candidate)
                     }
                 }
-                group.copy(options = changedOptions)
+                group.copy(options = changedOptions.toImmutableList())
             }
             state.copy(modifierDialogGroups = updatedGroups)
         }
@@ -440,7 +447,7 @@ class AddItemViewModel @Inject constructor(
                 selectionMode = group.selectionMode,
                 minSelect = group.minSelect,
                 maxSelect = group.maxSelect,
-                options = group.options.toDialogOptions()
+                options = group.options.toDialogOptions().toImmutableList()
             )
         }
     }

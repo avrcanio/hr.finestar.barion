@@ -357,6 +357,9 @@ class AddItemViewModelTest {
                 categoryId = categoryId,
                 forceRefresh = forceRefresh
             )
+            if (bootstrap?.categories?.isEmpty() == true && query.isNullOrBlank()) {
+                return emptyList()
+            }
             val byCategory = products.filter { categoryId == null || it.categoryId == categoryId }
             return byCategory.filter { query.isNullOrBlank() || it.name.contains(query, ignoreCase = true) }
         }

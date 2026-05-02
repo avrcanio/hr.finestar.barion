@@ -126,6 +126,16 @@ Cash contract napomena:
 - `prepare` može i bez body-a (backend auto full CASH part).
 - `pay-cash` trenutno backend očekuje i na `part_id=0` za auto-finalize cash flow.
 
+## Arhitektonska smjernica: sinkronizacija i UX
+
+> Primjenjujemo **eventual consistency** za katalog (artikli, cjenik, mediji) kako bi UI mogao preteći mrežu; naplata i stanje računa (**check**) zahtijevaju **strong consistency** i isključivo prate potvrđeno stanje s izvora istine (SSOT) kako bi se izbjegle nekonzistentnosti i dvostruke naplate.
+
+Katalog se smije graditi cache-first / SWR (vidi odjeljak *Cache i performanse*). Novčani tok i lifecycle checka ostaju na server-potvrdi i striktnom modelu stanja — bez optimističnog prikaza uspješne naplate prije potvrde (uključivo integracije s vanjskom aplikacijom za kartice).
+
+### Haptic feedback (preporuka za postavke)
+
+Lagani haptic pri odabiru artikla iz keša; jači potvrdni signal tek nakon potvrđene naplate. Intenzitet ili uključivanje držati u **Postavkama** aplikacije (npr. jednostavan toggle ili „Haptic feedback intensity“), da duge smjene s velikim brojem tapova ostanu senzorno podnošljive.
+
 ## Cache i performanse (implementirano)
 
 Implementiran je Room cache + SWR (stale-while-revalidate) za ključne endpointe:
